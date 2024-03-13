@@ -9,9 +9,9 @@ from tensorboardX import SummaryWriter
 from models import Landmark_generator as Landmark_transformer
 import argparse
 parser=argparse.ArgumentParser()
-parser.add_argument('--pre_audio_root',default='...../Dataset/lrs2_preprocessed_audio',
+parser.add_argument('--pre_audio_root',default='../preprocess_result/lrs2_audio', # Icey default='...../Dataset/lrs2_preprocessed_audio'
                     help='root path for preprocessed  audio')
-parser.add_argument('--landmarks_root',default='...../Dataset/lrs2_landmarks',
+parser.add_argument('--landmarks_root',default='../preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
                     help='root path for preprocessed  landmarks')
 args=parser.parse_args()
 #network parameters

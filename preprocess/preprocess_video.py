@@ -14,10 +14,10 @@ from mediapipe.framework.formats import landmark_pb2
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--process_num', type=int, default=6) #number of process in ThreadPool to preprocess the dataset
-parser.add_argument('--dataset_video_root', type=str, required=True)
-parser.add_argument('--output_sketch_root', type=str, default='./lrs2_sketch128')
-parser.add_argument('--output_face_root', type=str, default='./lrs2_face128')
-parser.add_argument('--output_landmark_root', type=str, default='./lrs2_landmarks')
+parser.add_argument('--dataset_video_root', type=str, required=True) # Icey "../mvlrs_v1/main"
+parser.add_argument('--output_sketch_root', type=str, default='../preprocess_result/lrs2_sketch128') # Icey default='./lrs2_sketch128'
+parser.add_argument('--output_face_root', type=str, default='../preprocess_result/lrs2_face128') # Icey default='./lrs2_face128'
+parser.add_argument('--output_landmark_root', type=str, default='../preprocess_result/lrs2_landmarks') # Icey default='./lrs2_landmarks'
 
 args = parser.parse_args()
 

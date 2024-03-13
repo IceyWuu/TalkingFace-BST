@@ -2,9 +2,12 @@
 /checkpoints
 /test/checkpoints/*.pth
 /src/arcface_torch/checkpoints
+/mvlrs_v1_origin
 /mvlrs_v1
 /tempfile_of_test_result
 /test_result
+/preprocess_result
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

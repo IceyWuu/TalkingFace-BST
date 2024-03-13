@@ -17,9 +17,9 @@ from loss import GANLoss
 from models import Renderer  
 import argparse
 parser=argparse.ArgumentParser()
-parser.add_argument('--sketch_root',required=True,help='root path for sketches')
-parser.add_argument('--face_img_root',required=True,help='root path for face frame images')
-parser.add_argument('--audio_root',required=True,help='root path for audio mel')
+parser.add_argument('--sketch_root',required=True,help='root path for sketches') # Icey'../preprocess_result/lrs2_sketch128'
+parser.add_argument('--face_img_root',required=True,help='root path for face frame images') # Icey'../preprocess_result/lrs2_face128'
+parser.add_argument('--audio_root',required=True,help='root path for audio mel') # Icey'../preprocess_result/lrs2_audio'
 args=parser.parse_args()
 #other parameters
 num_workers = 20
