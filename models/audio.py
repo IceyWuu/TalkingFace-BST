@@ -111,7 +111,7 @@ def preemphasis(wav, k, preemphasize=True):
 
 def inv_preemphasis(wav, k, inv_preemphasize=True):
     if inv_preemphasize:
-        return signal.lfilter([1], [1, -k], wav)
+        return signal.lfilter([1], [1, -k], wav) # Icey 一阶无限冲击响应(IIR)滤波器
     return wav
 
 
@@ -133,7 +133,7 @@ def linearspectrogram(wav):
 
 
 def melspectrogram(wav):
-    D = _stft(preemphasis(wav, hp.preemphasis, hp.preemphasize))
+    D = _stft(preemphasis(wav, hp.preemphasis, hp.preemphasize)) # 使用短时傅里叶变换得到频谱
     S = _amp_to_db(_linear_to_mel(np.abs(D))) - hp.ref_level_db
 
     if hp.signal_normalization:
@@ -144,7 +144,7 @@ def melspectrogram(wav):
 def _lws_processor():
     return lws.lws(hp.n_fft, get_hop_size(), fftsize=hp.win_size, mode="speech")
 
-
+# Icey  音频信号 y 的短时傅里叶变换 (STFT)
 def _stft(y):
     if hp.use_lws:
         return _lws_processor(hp).stft(y).T
@@ -197,7 +197,7 @@ def _build_mel_basis():
     return librosa.filters.mel(hp.sample_rate, hp.n_fft, n_mels=hp.num_mels,
                                fmin=hp.fmin, fmax=hp.fmax)
 
-
+# Icey 将振幅值转换为分贝(dB)刻度
 def _amp_to_db(x):
     min_level = np.exp(hp.min_level_db / 20 * np.log(10))
     return 20 * np.log10(np.maximum(min_level, x))

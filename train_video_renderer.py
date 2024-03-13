@@ -9,7 +9,7 @@ import numpy as np
 from glob import glob
 import os, random
 import cv2
-from piq import psnr, ssim, FID
+from piq import psnr, ssim, FID # Icey LPIPS 也在piq
 import face_alignment
 from piq.feature_extractors import InceptionV3
 from models import define_D
@@ -50,7 +50,7 @@ save_optimizer_state = True
 writer = SummaryWriter('tensorboard_runs/Project_{}'.format(Project_name))
 
 criterionFeat = torch.nn.L1Loss()
-class Dataset(object):
+class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
     def get_vid_name_list(self, split):
         filelist = []
         with open('filelists/{}/{}.txt'.format(filelist_name, split)) as f:
@@ -349,20 +349,20 @@ if __name__ == '__main__':
 
             gt = torch.cat([T_frame_img[i] for i in range(T_frame_img.size(0))], dim=0)  # (B*T,3,H,W)
             # discriminator
-            pred_fake = disc.forward(generated_img.detach())
-            loss_D_fake = criterionGAN(pred_fake, False)
+            pred_fake = disc.forward(generated_img.detach()) # Icey 计算了生成图像经过判别器 disc 的前向传播得到的预测结果,detach()确保在计算假设结果的损失时不会影响生成器的梯度更新
+            loss_D_fake = criterionGAN(pred_fake, False)     # Icey 计算假设结果的判别器损失
             # Real Detection and Loss
-            pred_real = disc.forward(gt.clone().detach())
-            loss_D_real = criterionGAN(pred_real, True)
-            loss_D = (loss_D_fake + loss_D_real).mean() * 0.5
+            pred_real = disc.forward(gt.clone().detach())    # Icey 计算真实图像 gt 经过判别器的前向传播得到的预测结果
+            loss_D_real = criterionGAN(pred_real, True)      # Icey 计算真实图像的判别器损失
+            loss_D = (loss_D_fake + loss_D_real).mean() * 0.5 # Icey 总的判别器损失，即生成图像和真实图像的判别器损失的平均值的一半
             #
             # GAN loss
             pred_fake = disc.forward(generated_img)
             loss_G_GAN = criterionGAN(pred_fake, True).mean()
             # GAN feature matching loss
-            loss_G_GAN_Feat = 0
-            feat_weights = 4.0 / (n_layers_D + 1)
-            D_weights = 1.0 / num_D
+            loss_G_GAN_Feat = 0                   # Icey 初始化特征匹配损失为零
+            feat_weights = 4.0 / (n_layers_D + 1) # Icey 计算特征匹配损失的权重
+            D_weights = 1.0 / num_D               # Icey  计算判别器的权重
             for i in range(num_D):
                 for j in range(len(pred_fake[i]) - 1):
                     loss_G_GAN_Feat += D_weights * feat_weights * \
@@ -371,8 +371,8 @@ if __name__ == '__main__':
                 loss = 2.5*perceptual_warp_loss+4*perceptual_gen_loss+0.1*2.5*loss_G_GAN+ loss_G_GAN_Feat
             else:
                 loss = 2.5 * perceptual_warp_loss+0*perceptual_gen_loss
-            loss.backward()
-            optimizer.step()
+            loss.backward()  # Icey 计算当前损失对模型参数的梯度
+            optimizer.step() # Icey 根据损失函数的梯度更新模型参数
             # update discriminator weights:
             loss_D.backward()
             disc_optimizer.step()

@@ -356,7 +356,7 @@ class Renderer(torch.nn.Module):
         gt_face = torch.cat([face_frame_img[i] for i in range(face_frame_img.size(0))], dim=0)
         # (B,3,H,W)
         gt_mask_face = gt_face.clone()
-        gt_mask_face[:, :, gt_mask_face.size(2) // 2:, :] = 0  # (B,3,H,W)
+        gt_mask_face[:, :, gt_mask_face.size(2) // 2:, :] = 0  # (B,3,H,W) # Icey 高度设为原来的一半了，(B, C, H, W) → 批量数、通道数、高、宽
         #
         translation_input=torch.cat([gt_mask_face, target_sketches], dim=1) #  (B*T,3+3,H,W)
         generated_face = self.translation(translation_input, wrapped_ref, wrapped_h1, wrapped_h2, audio_mels) #translation_input

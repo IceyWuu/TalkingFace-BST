@@ -17,7 +17,7 @@ GREEN_COLOR = (0, 128, 0)
 BLUE_COLOR = (255, 0, 0)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass # Icey Dataclasses是一些适合于存储数据对象，把类转换为一个dataclass
 class DrawingSpec:
   # Color for drawing the annotation. Default to the white color.
   color: Tuple[int, int, int] = WHITE_COLOR

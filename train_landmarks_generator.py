@@ -32,7 +32,7 @@ evaluate_interval = 5000  #
 checkpoint_interval = evaluate_interval
 mel_step_size = 16
 fps = 25
-lr = 1e-4
+lr = 1e-4 # Icey learning rate
 global_step, global_epoch = 0, 0
 landmark_root=args.landmarks_root
 filelist_name = 'lrs2'
@@ -226,10 +226,10 @@ def get_velocity_loss (pred, gt):  #(B*T,2,57) (B*T,2,57)
     gt = torch.cat([gt[:, :, :, i] for i in range(gt.size(3))], dim=2)  # (B,T,57*2)
 
     b, t, c = pred.shape
-    pred_spiky = pred[:, 1:, :] - pred[:, :-1, :]   #
+    pred_spiky = pred[:, 1:, :] - pred[:, :-1, :]   # Icey相邻帧 （从第二个时间步开始到最后一个时间步）-（从第一个时间步开始到倒数第二个时间步）
     gt_spiky = gt[:, 1:, :] - gt[:, :-1, :]
 
-    pred_spiky = pred_spiky.view(b * (t - 1), c)
+    pred_spiky = pred_spiky.view(b * (t - 1), c) # Icey 变为一个大小为 (b * (t - 1), c) 的二维张量
     gt_spiky = gt_spiky.view(b * (t - 1), c)
     pairwise_distance = torch.nn.functional.pairwise_distance(pred_spiky, gt_spiky)
     return torch.mean(pairwise_distance)
@@ -268,16 +268,16 @@ if __name__ == '__main__':
     # create a model and optimizer
     model = Landmark_transformer(T,d_model,nlayers,nhead,dim_feedforward,dropout)
     if finetune_path is not None:  ###fine tune
-        model_dict = model.state_dict()
+        model_dict = model.state_dict() # Icey 获取当前模型的状态字典，state_dict就是不带模型结构的模型参数
         print('load module....from :', finetune_path)
-        checkpoint = torch.load(finetune_path)
+        checkpoint = torch.load(finetune_path) # Icey 加载预训练模型的检查点文件
         s = checkpoint["state_dict"]
         new_s = {}
         for k, v in s.items():
             new_s[k.replace('module.', '')] = v
         state_dict_needed = {k: v for k, v in new_s.items() if k in model_dict.keys()}  # we need in model
-        model_dict.update(state_dict_needed)
-        model.load_state_dict(model_dict)
+        model_dict.update(state_dict_needed) # Icey 更新模型参数
+        model.load_state_dict(model_dict) # Icey 更新模型参数
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     if torch.cuda.device_count() > 1:
         model = torch.nn.DataParallel(model)
@@ -289,8 +289,8 @@ if __name__ == '__main__':
         batch_size=batch_size,
         shuffle=True,
         drop_last=True,
-        num_workers=num_workers,
-        pin_memory=True
+        num_workers=num_workers, # Icey 使用的子进程数
+        pin_memory=True # Icey 存储在CUDA固定内存中
     )
     val_data_loader = torch.utils.data.DataLoader(
         val_dataset,
@@ -300,15 +300,15 @@ if __name__ == '__main__':
         num_workers=num_workers,
         pin_memory=True
     )
-    while global_epoch < 9999999999:
-        prog_bar = tqdm(enumerate(train_data_loader), total=len(train_data_loader))
+    while global_epoch < 9999999999: # Icey (T_mels, T_pose, T_content, Nl_pose, Nl_content) 是从 train_data_loader 中获取的一个 batch 的数据
+        prog_bar = tqdm(enumerate(train_data_loader), total=len(train_data_loader)) # Icey 完成一次完整的数据集遍历所需的批次数量
         running_L1_loss,running_velocity_loss=0.,0.
         for step, (T_mels, T_pose, T_content, Nl_pose, Nl_content) in prog_bar:
             if global_step % checkpoint_interval == 0:
                 save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch, prefix=Project_name)
             if global_step % evaluate_interval == 0 or global_step == 100:
                 with torch.no_grad():
-                    evaluate(model, val_data_loader)
+                    evaluate(model, val_data_loader) # 生成下半部分landmark的loss
             T_mels,T_pose,T_content,Nl_pose,Nl_content= T_mels.cuda(non_blocking=True), T_pose.cuda(non_blocking=True), T_content.cuda(non_blocking=True), \
                 Nl_pose.cuda(non_blocking=True),Nl_content.cuda(non_blocking=True)
             #(B,T,1,hv,wv) (B,T,2,74)  (B,T,2,57)

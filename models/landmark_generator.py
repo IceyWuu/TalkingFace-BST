@@ -65,10 +65,10 @@ class Conv2d(nn.Module):
 
 
 def weight_init(m):
-    if isinstance(m, nn.Linear):
-        nn.init.xavier_normal_(m.weight)
-        nn.init.constant_(m.bias, 0)
-    elif isinstance(m, nn.BatchNorm1d):
+    if isinstance(m, nn.Linear): # Icey 线性层初始化
+        nn.init.xavier_normal_(m.weight) # Icey 初始化权重
+        nn.init.constant_(m.bias, 0) # Icey bias设为0
+    elif isinstance(m, nn.BatchNorm1d): # Icey BatchNorm1d初始化
         nn.init.constant_(m.weight, 1)
         nn.init.constant_(m.bias, 0)
 
@@ -112,7 +112,7 @@ class Fusion_transformer_encoder(nn.Module):
 class Landmark_generator(nn.Module):
     def __init__(self,T,d_model,nlayers,nhead,dim_feedforward,dropout=0.1):
         super(Landmark_generator, self).__init__()
-        self.mel_encoder=nn.Sequential(  #  (B*T,1,hv,wv)
+        self.mel_encoder=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱
             Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
             Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
             Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
@@ -132,7 +132,7 @@ class Landmark_generator(nn.Module):
             Conv2d(512, 512, kernel_size=1, stride=1, padding=0,act='Tanh'),
             )
 
-        self.ref_encoder=nn.Sequential( # (B*Nl,2,131)
+        self.ref_encoder=nn.Sequential( # (B*Nl,2,131) # Icey 参考landmark
             Conv1d(2, 4, 3, 1, 1),  #131
 
             Conv1d(4, 8, 3, 2,1), #66
@@ -161,7 +161,7 @@ class Landmark_generator(nn.Module):
             Conv1d(256, 512, 3, 1,0), #1
             Conv1d(512, 512, 1, 1,0,act='Tanh'), #1
         )
-        self.pose_encoder=nn.Sequential(   # (B*T,2,74)
+        self.pose_encoder=nn.Sequential(   # (B*T,2,74) # Icey 姿态landmark
             Conv1d(2, 4, 3, 1, 1),
 
             Conv1d(4, 8, 3, 1, 1),  #74
@@ -191,14 +191,14 @@ class Landmark_generator(nn.Module):
             Conv1d(256, 512, 3, 1, 0),  # 1
             Conv1d(512, 512, 1, 1, 0, residual=True,act='Tanh'),
         )
-
+        # Icey 融合 Transformer 编码器，用于将三个编码器的特征进行融合和建模。
         self.fusion_transformer = Fusion_transformer_encoder(T,d_model,nlayers,nhead,dim_feedforward,dropout)
 
-        self.mouse_keypoint_map = nn.Linear(d_model, 40 * 2)
-        self.jaw_keypoint_map = nn.Linear(d_model, 17 * 2)
+        self.mouse_keypoint_map = nn.Linear(d_model, 40 * 2) # Icey 线性层，将融合后的特征映射到嘴部的关键点坐标
+        self.jaw_keypoint_map = nn.Linear(d_model, 17 * 2) # Icey 线性层，将融合后的特征映射到下颌的关键点坐标
 
-        self.apply(weight_init)
-        self.Norm=nn.LayerNorm(512)
+        self.apply(weight_init) # Icey 初始化权重和bias
+        self.Norm=nn.LayerNorm(512) # Icey  normalization layer
 
     def forward(self, T_mels, T_pose, Nl_pose, Nl_content):
                 # (B,T,1,hv,wv) (B,T,2,74) (B,N_l,2,74)  (B,N_l,2,57)

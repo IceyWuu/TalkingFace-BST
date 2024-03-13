@@ -26,7 +26,7 @@ def define_D(input_nc=3, ndf=64, n_layers_D=3, norm='instance', use_sigmoid=Fals
     netD.apply(weights_init)
     return netD
 
-
+# Icey PatchGAN 作为判别器
 class NLayerDiscriminator(nn.Module):
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, getIntermFeat=False):
         super(NLayerDiscriminator, self).__init__()
@@ -82,7 +82,7 @@ class NLayerDiscriminator(nn.Module):
 
 def get_norm_layer(norm_type='instance'):
     if norm_type == 'batch':
-        norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
+        norm_layer = functools.partial(nn.BatchNorm2d, affine=True) # Icey affine=True 表示层具有可学习的缩放和偏移参数
     elif norm_type == 'instance':
         norm_layer = functools.partial(nn.InstanceNorm2d, affine=False)
     else:
@@ -91,7 +91,8 @@ def get_norm_layer(norm_type='instance'):
 
 
 
-
+# Icey Multiscale是多个传统discriminator的叠加，比如Multiscale中的第一个D是用来判别输入img的真假，第二个D是判别输入img经过下采样后的真假
+# Icey 使用3个具有相同网络结构但在不同图像尺度下工作的鉴别器 num_D
 class MultiscaleDiscriminator(nn.Module):
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d,
                  use_sigmoid=False, num_D=3, getIntermFeat=False):

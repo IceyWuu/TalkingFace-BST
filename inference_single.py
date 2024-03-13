@@ -23,10 +23,10 @@ parser.add_argument('--renderer_checkpoint_path', type=str, default='./test/chec
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 args = parser.parse_args()
 
-ref_img_N = 25
-Nl = 15
-T = 5
-mel_step_size = 16
+ref_img_N = 25 # Icey 参考图片，渲染部分
+Nl = 15 # Icey 参考图像的landmark，参考图像的数量
+T = 5 # Icey 推理时每个batch取的帧数
+mel_step_size = 16 # Icey 梅尔图谱的每个chunk的大小
 img_size = 128
 
 mp_face_mesh = mp.solutions.face_mesh
@@ -41,6 +41,7 @@ os.makedirs(output_dir, exist_ok=True)
 os.makedirs(temp_dir, exist_ok=True)
 input_video_path = args.input
 input_audio_path = args.audio
+
 
 # the following is the index sequence for fical landmarks detected by mediapipe
 ori_sequence_idx = [162, 127, 234, 93, 132, 58, 172, 136, 150, 149, 176, 148, 152, 377, 400, 378, 379, 365, 397, 288,
@@ -129,7 +130,7 @@ def swap_masked_region(target_img, src_img, mask): #function used in post-proces
     """  # swap_masked_region(src_frame, generated_frame, mask=mask_img)
     mask_img = cv2.GaussianBlur(mask, (21, 21), 11)
     mask1 = mask_img / 255
-    mask1 = np.tile(np.expand_dims(mask1, axis=2), (1, 1, 3))
+    mask1 = np.tile(np.expand_dims(mask1, axis=2), (1, 1, 3)) # Icey 比如mask扩展一个轴得到（1，1，1），然后堆叠（1，1，3）
     img = src_img * mask1 + target_img * (1 - mask1)
     return img.astype(np.uint8)
 
@@ -231,7 +232,7 @@ if not input_audio_path.endswith('.wav'):
     command = 'ffmpeg -y -i {} -strict -2 {}'.format(input_audio_path, '{}/temp.wav'.format(temp_dir))
     subprocess.call(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     input_audio_path = '{}/temp.wav'.format(temp_dir)
-wav = audio.load_wav(input_audio_path, 16000)
+wav = audio.load_wav(input_audio_path, 16000) # Icey 音频将自动重新采样到给定的速率16000
 mel = audio.melspectrogram(wav)  # (H,W)   extract mel-spectrum
 ##read audio mel into list###
 mel_chunks = []  # each mel chunk correspond to 5 video frames, used to generate one video frame
@@ -240,7 +241,8 @@ mel_chunk_idx = 0
 while 1:
     start_idx = int(mel_chunk_idx * mel_idx_multiplier)
     if start_idx + mel_step_size > len(mel[0]):
-        break
+        break 
+     # Icey Mel频谱图通常显示为二维图形，y轴表示Mel频率，表示人耳对声音的感知，x轴表示时间。该段时间步长内的所有频谱。
     mel_chunks.append(mel[:, start_idx: start_idx + mel_step_size])  # mel for generate one video frame
     mel_chunk_idx += 1
 # mel_chunks = mel_chunks[:(len(mel_chunks) // T) * T]
@@ -252,19 +254,19 @@ lip_dists = [] #lip dists
 face_crop_results = []
 all_pose_landmarks, all_content_landmarks = [], []  #content landmarks include lip and jaw landmarks
 with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landmarks=True,
-                           min_detection_confidence=0.5) as face_mesh:
+                           min_detection_confidence=0.5) as face_mesh: # Icey 人脸的静态 3D 模型，468个点（id, x, y, z），但只用了131个，57+74
     # (1) get bounding boxes and lip dist
     for frame_idx, full_frame in enumerate(ori_background_frames):
         h, w = full_frame.shape[0], full_frame.shape[1]
-        results = face_mesh.process(cv2.cvtColor(full_frame, cv2.COLOR_BGR2RGB))
+        results = face_mesh.process(cv2.cvtColor(full_frame, cv2.COLOR_BGR2RGB)) # Icey 进行特征点提取
         if not results.multi_face_landmarks:
             raise NotImplementedError  # not detect face
-        face_landmarks = results.multi_face_landmarks[0]
+        face_landmarks = results.multi_face_landmarks[0] # Icey 检测到的第一张脸的landmark
 
         ## calculate the lip dist
         dx = face_landmarks.landmark[lip_index[0]].x - face_landmarks.landmark[lip_index[1]].x
         dy = face_landmarks.landmark[lip_index[0]].y - face_landmarks.landmark[lip_index[1]].y
-        dist = np.linalg.norm((dx, dy))
+        dist = np.linalg.norm((dx, dy)) # Icey linear线性 algebra代数；norm求范数，2范数是欧氏距离
         lip_dists.append((frame_idx, dist))
 
         # (1)get the marginal landmarks to crop face
@@ -293,7 +295,7 @@ with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landm
 
     # (2)croppd face
     face_crop_results = [[image[y1:y2, x1:x2], (y1, y2, x1, x2)] \
-                         for image, (y1, y2, x1, x2) in zip(ori_background_frames, boxes)]
+                         for image, (y1, y2, x1, x2) in zip(ori_background_frames, boxes)] # Icey [[图片],(在原图的四个点的坐标)]
 
     # (3)detect facial landmarks
     for frame_idx, full_frame in enumerate(ori_background_frames):
@@ -342,7 +344,7 @@ all_content_landmarks=get_smoothened_landmarks(all_content_landmarks,windows_T=1
 dists_sorted = sorted(lip_dists, key=lambda x: x[1])
 lip_dist_idx = np.asarray([idx for idx, dist in dists_sorted])  #the frame idxs sorted by lip openness
 
-Nl_idxs = [lip_dist_idx[int(i)] for i in torch.linspace(0, input_vid_len - 1, steps=Nl)]
+Nl_idxs = [lip_dist_idx[int(i)] for i in torch.linspace(0, input_vid_len - 1, steps=Nl)] # Icey 按照上下唇距离，等距取了相应距离的唇部索引
 Nl_pose_landmarks, Nl_content_landmarks = [], []  #Nl_pose + Nl_content=Nl reference landmarks
 for reference_idx in Nl_idxs:
     frame_pose_landmarks = all_pose_landmarks[reference_idx]
@@ -370,7 +372,7 @@ for idx in range(Nl):
 Nl_content = Nl_content.unsqueeze(0)  # (1,Nl, 2, 57)
 Nl_pose = Nl_pose.unsqueeze(0)  # (1,Nl,2,74)
 
-##select reference images and draw sketches for rendering according to lip openness##
+##select reference images and draw sketches for rendering according to lip openness## # Icey 两个阶段的参考不是同一批参考图像
 ref_img_idx = [int(lip_dist_idx[int(i)]) for i in torch.linspace(0, input_vid_len - 1, steps=ref_img_N)]
 ref_imgs = [face_crop_results[idx][0] for idx in ref_img_idx]
 ## (N,H,W,3)
@@ -387,7 +389,7 @@ for idx in range(ref_img_N):
                                          key=lambda land_tuple: ori_sequence_idx.index(land_tuple[0]))
     ref_img_content_landmarks[idx] = sorted(ref_img_content_landmarks[idx],
                                             key=lambda land_tuple: ori_sequence_idx.index(land_tuple[0]))
-    ref_img_pose[idx, 0, :] = torch.FloatTensor(
+    ref_img_pose[idx, 0, :] = torch.FloatTensor( # Icey idx是遍历每一张参考图，i是遍历每一个landmark，每一个landmark是（该landmark索引，x，y）
         [ref_img_pose_landmarks[idx][i][1] for i in range(len(ref_img_pose_landmarks[idx]))])  # x
     ref_img_pose[idx, 1, :] = torch.FloatTensor(
         [ref_img_pose_landmarks[idx][i][2] for i in range(len(ref_img_pose_landmarks[idx]))])  # y
@@ -410,27 +412,27 @@ for frame_idx in range(ref_img_full_face_landmarks.shape[0]):  # N
     drawn_sketech = cv2.resize(drawn_sketech, (img_size, img_size))  # (128, 128, 3)
     ref_img_sketches.append(drawn_sketech)
 ref_img_sketches = torch.FloatTensor(np.asarray(ref_img_sketches) / 255.0).cuda().unsqueeze(0).permute(0, 1, 4, 2, 3)
-# (1,N, 3, 128, 128)
+# (1,N, 3, 128, 128) # Icey N张图像，3通道，128x128的图像
 ref_imgs = [cv2.resize(face.copy(), (img_size, img_size)) for face in ref_imgs]
 ref_imgs = torch.FloatTensor(np.asarray(ref_imgs) / 255.0).unsqueeze(0).permute(0, 1, 4, 2, 3).cuda()
 # (1,N,3,H,W)
 
 ##prepare output video strame##
-frame_h, frame_w = ori_background_frames[0].shape[:-1]
+frame_h, frame_w = ori_background_frames[0].shape[:-1] # Icey  shape → (height, width, channels), [:-1] 即不选最后一个通道
 out_stream = cv2.VideoWriter('{}/result.avi'.format(temp_dir), cv2.VideoWriter_fourcc(*'DIVX'), fps,
                              (frame_w * 2, frame_h))  # +frame_h*3
 
 
 ##generate final face image and output video##
 input_mel_chunks_len = len(mel_chunks)
-input_frame_sequence = torch.arange(input_vid_len).tolist()
+input_frame_sequence = torch.arange(input_vid_len).tolist() # Icey 生成一个从0到input_vid_len - 1的帧索引序列。
 #the input template video may be shorter than audio
 #in this case we repeat the input template video as following
 num_of_repeat=input_mel_chunks_len//input_vid_len+1
 input_frame_sequence = input_frame_sequence + list(reversed(input_frame_sequence))
-input_frame_sequence=input_frame_sequence*((num_of_repeat+1)//2)
+input_frame_sequence=input_frame_sequence*((num_of_repeat+1)//2) # input_frame_sequence * 2 表示序列重复两次
 
-
+# Icey batch_idx, batch_start_idx:在每次迭代中，batch_idx将保存当前批处理的索引，batch_start_idx将保存当前批处理的起始索引。
 for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len - 2, 1)),
                                        total=len(range(0, input_mel_chunks_len - 2, 1))):
     T_input_frame, T_ori_face_coordinates = [], []
@@ -467,9 +469,9 @@ for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len -
     Nl_pose, Nl_content = Nl_pose.cuda(), Nl_content.cuda() # (Nl,2,74)  (Nl,2,57)
     T_mels, T_pose = T_mels.cuda(), T_pose.cuda()
     with torch.no_grad():  # require    (1,T,1,hv,wv)(1,T,2,74)(1,T,2,57)
-        predict_content = landmark_generator_model(T_mels, T_pose, Nl_pose, Nl_content)  # (1*T,2,57)
+        predict_content = landmark_generator_model(T_mels, T_pose, Nl_pose, Nl_content)  # (1*T,2,57) # Icey 在使用Pytorch的时候，不需要调用forward这个函数，只需要在实例化一个对象中传入对应的参数就可以自动调用 forward 函数。
     T_pose = torch.cat([T_pose[i] for i in range(T_pose.size(0))], dim=0)  # (1*T,2,74)
-    T_predict_full_landmarks = torch.cat([T_pose, predict_content], dim=2).cpu().numpy()  # (1*T,2,131)
+    T_predict_full_landmarks = torch.cat([T_pose, predict_content], dim=2).cpu().numpy()  # (1*T,2,131) # Icey 预测和参考合成整脸landmark
 
     #1.draw target sketch
     T_target_sketches = []
@@ -489,7 +491,7 @@ for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len -
     T_target_sketches = torch.stack(T_target_sketches, dim=0).permute(0, 3, 1, 2)  # (T,3,128, 128)
     target_sketches = T_target_sketches.unsqueeze(0).cuda()  # (1,T,3,128, 128)
 
-    # 2.lower-half masked face
+    # 2.lower-half masked face # Icey Question：没看到mask了
     ori_face_img = torch.FloatTensor(cv2.resize(T_crop_face[2], (img_size, img_size)) / 255).permute(2, 0, 1).unsqueeze(
         0).unsqueeze(0).cuda()  #(1,1,3,H, W)
 
@@ -498,7 +500,7 @@ for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len -
     # return  (1,3,H,W)
     with torch.no_grad():
         generated_face, _, _, _ = renderer(ori_face_img, target_sketches, ref_imgs, ref_img_sketches,
-                                                    T_mels[:, 2].unsqueeze(0))  # T=1
+                                                    T_mels[:, 2].unsqueeze(0))  # T=1 # Icey 在render内部把下半部分脸mask了
     gen_face = (generated_face.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)  # (H,W,3)
 
     # 4. paste each generated face
