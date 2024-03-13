@@ -31,7 +31,7 @@ img_size = 128
 
 mp_face_mesh = mp.solutions.face_mesh
 drawing_spec = mp.solutions.drawing_utils.DrawingSpec(thickness=1, circle_radius=1)
-fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False, device='cuda')
+fa = face_alignment.FaceAlignment(face_alignment.LandmarksType.TWO_D, flip_input=False, device='cuda') # Icey ._2D
 lip_index = [0, 17]  # the index of the midpoints of the upper lip and lower lip
 landmark_gen_checkpoint_path = args.landmark_gen_checkpoint_path
 renderer_checkpoint_path =args.renderer_checkpoint_path
