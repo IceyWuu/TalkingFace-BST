@@ -1,3 +1,4 @@
 /checkpoints
 /test/checkpoints/*.pth
 /src/arcface_torch/checkpoints
+/mvlrs_v1
