@@ -9,9 +9,9 @@ from tensorboardX import SummaryWriter
 from models import Landmark_generator as Landmark_transformer
 import argparse
 parser=argparse.ArgumentParser()
-parser.add_argument('--pre_audio_root',default='../preprocess_result/lrs2_audio', # Icey default='...../Dataset/lrs2_preprocessed_audio'
+parser.add_argument('--pre_audio_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio', # Icey default='...../Dataset/lrs2_preprocessed_audio'
                     help='root path for preprocessed  audio')
-parser.add_argument('--landmarks_root',default='../preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
+parser.add_argument('--landmarks_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
                     help='root path for preprocessed  landmarks')
 args=parser.parse_args()
 #network parameters
@@ -84,7 +84,8 @@ class Dataset(object):
         self.all_video_names = []
         print("init dataset,filtering very short videos.....")
         for vid_name in tqdm(vid_name_lists, total=len(vid_name_lists)):
-            pkl_paths = list(glob(join(landmark_root,vid_name, '*.npy')))
+            pkl_paths = list(glob(join(landmark_root,vid_name, '*.npy'))) # Icey glob 函数，root目录要用绝对路径，否则返回列表为空，导致got num_samples=0
+            # print(landmark_root,vid_name)
             vid_len=len(pkl_paths)
             if vid_len >= min_len:
                 self.all_video_names.append((vid_name, vid_len))
@@ -261,7 +262,7 @@ def evaluate(model, val_data_loader):
     print('eval_L1_loss', eval_L1_loss / count, 'global_step:', global_step)
     writer.add_scalar('eval_velocity_loss', eval_velocity_loss / count, global_step)
     print('eval_velocity_loss', eval_velocity_loss / count, 'global_step:', global_step)
-if __name__ == '__main__':
+if __name__ == '__main__': # Icey 约 10min 1个epoch，约2min 1个epoch
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir, exist_ok=True)
     device = torch.device("cuda")
@@ -284,6 +285,8 @@ if __name__ == '__main__':
     model = model.cuda()
     train_dataset = Dataset('train')
     val_dataset = Dataset('test')
+    print("*************************Icey Successfully loaded data*************************")
+    print(len(train_dataset))
     train_data_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,

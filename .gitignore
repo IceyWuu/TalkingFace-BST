@@ -7,6 +7,7 @@
 /tempfile_of_test_result
 /test_result
 /preprocess_result
+/tensorboard_runs
 
 
 # Byte-compiled / optimized / DLL files

@@ -17,9 +17,12 @@ from loss import GANLoss
 from models import Renderer  
 import argparse
 parser=argparse.ArgumentParser()
-parser.add_argument('--sketch_root',required=True,help='root path for sketches') # Icey'../preprocess_result/lrs2_sketch128'
-parser.add_argument('--face_img_root',required=True,help='root path for face frame images') # Icey'../preprocess_result/lrs2_face128'
-parser.add_argument('--audio_root',required=True,help='root path for audio mel') # Icey'../preprocess_result/lrs2_audio'
+parser.add_argument('--sketch_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
+                    help='root path for sketches') # Icey',required=True'
+parser.add_argument('--face_img_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
+                    help='root path for face frame images') # Icey',required=True'
+parser.add_argument('--audio_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
+                    help='root path for audio mel') # Icey',required=True'
 args=parser.parse_args()
 #other parameters
 num_workers = 20
@@ -28,8 +31,8 @@ finetune_path =None
 ref_N = 3
 T = 1
 print('Project_name:', Project_name)
-batch_size = 96       #### batch_size
-batch_size_val = 96    #### batch_size
+batch_size = 80 # Icey 96       #### batch_size
+batch_size_val = 80 # Icey 96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
