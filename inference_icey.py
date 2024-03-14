@@ -9,11 +9,13 @@ import face_alignment
 from models import audio
 from draw_landmark import draw_landmarks
 import mediapipe as mp
+from glob import glob
+from os.path import join
 parser = argparse.ArgumentParser()
-parser.add_argument('--input', '--input_template_video', type=str, default='./test/template_video/129.mp4')
-#'./test/template_video/129.mp4'
+# parser.add_argument('--input', '--input_template_video', type=str, default='./test/template_video/129.mp4')
+# #'./test/template_video/129.mp4'
 
-parser.add_argument('--audio', type=str, default='./test/template_video/audio2.wav')
+# parser.add_argument('--audio', type=str, default='./test/template_video/audio2.wav')
 #'./test/template_video/abstract.mp3'
 #'./test/template_video/audio2.wav'
 parser.add_argument('--output_dir', type=str, default='./test_result')
@@ -23,7 +25,8 @@ parser.add_argument('--renderer_checkpoint_path', type=str, default='./test/chec
 # Icey add argument
 parser.add_argument('--process_num', type=int, default=6) #number of process to preprocess the audio
 parser.add_argument("--data_root", type=str,help="Root folder of the LRS2 dataset", default='/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main') # Icey "required=True"
-parser.add_argument("--out_root", help="output audio root", required=True) # Icey "../inference_preprocess_result/lrs2_audio"
+parser.add_argument("--out_audio_root", help="output audio root") # Icey , required=True "../inference_preprocess_result/lrs2_audio"
+# parser.add_argument("--out_root", help="output audio root", required=True) # Icey "../inference_result/"
 # parser.add_argument('--sketch_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
 #                     help='root path for sketches') # Icey',required=True'
 # parser.add_argument('--face_img_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
@@ -222,68 +225,79 @@ def get_smoothened_landmarks(all_landmarks, windows_T=1):
             all_landmarks[i][j][2] = np.mean([frame_landmarks[j][2] for frame_landmarks in window])  # y
     return all_landmarks
 
+# Dataloader
+# class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
+#     def get_vidname_list(self, split):
+#         filelist = []
+#         with open('filelists/{}/{}.txt'.format(filelist_name, split)) as f: # Icey filelists/lrs2/test.txt
+#             for line in f:
+#                 line = line.strip()
+#                 if ' ' in line: line = line.split()[0] # Icey 6330311066473698535/00011
+#                 filelist.append(line) # Icey filelist.append(line.split('/')[0])
+#         return filelist
 
-class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
-    def get_vid_dirs(self, split):
-        filelist = []
-        with open('filelists/{}/{}.txt'.format(filelist_name, split)) as f: # Icey filelists/lrs2/test.txt
-            for line in f:
-                line = line.strip()
-                if ' ' in line: line = line.split()[0] # Icey 6330311066473698535/00011
-                filelist.append(line.split('/')[0]) # Icey filelist.append(line)
-        return filelist
+#     def __init__(self, split):
+#         vid_name_lists = self.get_vidname_list(split)
+#         # self.absolute_video_path = list(glob(join(args.data_root,vid_name_lists,'*.mp4'))) # Icey join 输入不能是list
+#         self.absolute_video_path=[]
+#         for vid_name in tqdm(vid_name_lists,total=len(vid_name_lists)):
+#             # print(vid_name.split('/')[0],vid_name.split('/')[1])
+#             self.absolute_video_path.append(glob(join(args.data_root,vid_name.split('/')[0],'*.mp4'))) # Icey '*/*.mp4'
+#         print("complete,with available vids: ", len(self.absolute_video_path), '\n')
 
-    def __init__(self, split):
-        vid_dirs= self.get_vid_dirs(split)
-        self.absolute_video_path = list(glob(path.join(args.data_root,vid_dirs,'*/*.mp4')))
-        # self.absolute_video_path=[]
-        # for vid_name in tqdm(vid_name_lists,total=len(vid_name_lists)):
-        #     self.absolute_video_path.append(glob(path.join(args.data_root,vid_name,'*/*.mp4')))
-        print("complete,with available vids: ", len(self.available_video_names), '\n')
+#     def __len__(self):
+#         return len(self.absolute_video_path)
 
-    def __len__(self):
-        return len(self.absolute_video_path)
+#     def __getitem__(self, idx):
+#         return self.absolute_video_path[idx]
 
-    def __getitem__(self, idx):
-        return self.absolute_video_path
+# # # Icey add
+# # def get_wav(input_video_path):
+# #     vfile = input_video_path
+# #     try:
+# #         vidname = os.path.basename(vfile).split('.')[0]
+# #         dirname = vfile.split('/')[-2]
 
-# Icey add
-def get_wav(input_video_path):
-    vfile = input_video_path
-    try:
-        vidname = os.path.basename(vfile).split('.')[0]
-        dirname = vfile.split('/')[-2]
+# #         fulldir = path.join(args.out_audio_root, dirname, vidname)
+# #         os.makedirs(fulldir, exist_ok=True)
+# #         wavpath = path.join(fulldir, 'audio.wav')
 
-        fulldir = path.join(args.out_root, dirname, vidname)
-        os.makedirs(fulldir, exist_ok=True)
-        wavpath = path.join(fulldir, 'audio.wav')
-
-        command = 'ffmpeg -y -i {} -strict -2 {}'.format(vfile.replace(' ', r'\ '), wavpath.replace(' ', r'\ ')) # Icey 输入.mp4，输出.wav，并保存
-        subprocess.run(command, shell=True)
-        return wavpath
-    except KeyboardInterrupt:
-        exit(0)
-    except:
-        traceback.print_exc()
+# #         command = 'ffmpeg -y -i {} -strict -2 {}'.format(vfile.replace(' ', r'\ '), wavpath.replace(' ', r'\ ')) # Icey 输入.mp4，输出.wav，并保存
+# #         subprocess.run(command, shell=True)
+# #         return wavpath
+# #     except KeyboardInterrupt:
+# #         exit(0)
+# #     except:
+# #         traceback.print_exc()
 
 
-# Icey 输入数据集------------------------------------------------------
-# Icey add all_mp4_path, add loop
-# all_mp4_path = glob(path.join(args.data_root, '*/*.mp4')) # Icey 使用 glob 函数查找符合通配符路径的所有文件
-# create dataset
-val_dataset = Dataset('test')
-val_data_loader = torch.utils.data.DataLoader(
-    val_dataset,
-    batch_size=batch_size_val, # Icey 80
-    shuffle=True,
-    drop_last=True,
-    num_workers=num_workers, # Icey 20
-    pin_memory=True
-)
+# # Icey 输入数据集------------------------------------------------------
+# # Icey add all_mp4_path, add loop
+# # all_mp4_path = glob(path.join(args.data_root, '*/*.mp4')) # Icey 使用 glob 函数查找符合通配符路径的所有文件
+# # create dataset
+# val_dataset = Dataset('test')
+# val_data_loader = torch.utils.data.DataLoader(
+#     val_dataset,
+#     batch_size=batch_size_val, # Icey 80
+#     shuffle=True,
+#     drop_last=True,
+#     num_workers=num_workers, # Icey 20
+#     pin_memory=True
+# )
 
-prog_bar = tqdm(enumerate(val_data_loader), total=len(val_data_loader))
-for step, input_video_path in prog_bar:
-    # input_audio_path = get_wav(input_video_path)
+
+filelist = []
+with open('filelists/{}/{}.txt'.format(filelist_name, 'test')) as f: # Icey filelists/lrs2/test.txt
+    for line in f:
+        line = line.strip()
+        if ' ' in line: line = line.split()[0] # Icey 6330311066473698535/00011
+        filelist.append(line) # Icey filelist.append(line.split('/')[0])
+absolute_video_path=[]
+for vid_name in tqdm(filelist,total=len(filelist)):
+    absolute_video_path.append(glob(join(args.data_root,vid_name +'.mp4'))[0]) # Icey glob返回的是列表，取字符串
+
+# prog_bar = tqdm(enumerate(val_data_loader), total=len(val_data_loader))
+for step, input_video_path in enumerate(absolute_video_path):
     input_audio_path = input_video_path # Icey 后面有检测不是wav转换
 
     if os.path.isfile(input_video_path) and input_video_path.split('.')[1] in ['jpg', 'png', 'jpeg']:
