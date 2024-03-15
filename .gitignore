@@ -8,7 +8,8 @@
 /test_result
 /preprocess_result
 /tensorboard_runs
-
+/tmp
+/.vscode
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

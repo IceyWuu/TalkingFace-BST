@@ -223,6 +223,7 @@ def process_video_file(mp4_path):
             h, w = full_frame.shape[0], full_frame.shape[1]
             results = face_mesh.process(cv2.cvtColor(full_frame, cv2.COLOR_BGR2RGB))
             if not results.multi_face_landmarks:
+                print("Not detect face!----------------------------------------")
                 continue  # not detect
             face_landmarks=results.multi_face_landmarks[0]
 
@@ -305,6 +306,7 @@ def mp_handler(mp4_path):
 def main():
     print('looking up videos.... ')
     mp4_list = glob.glob(input_mp4_root + '/*/*.mp4')  #example: .../lrs2_video/5536038039829982468/00001.mp4
+    # ['/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main/6332062124509813446/00059.mp4']
     print('total videos :', len(mp4_list))
 
     process_num = args.process_num

@@ -11,7 +11,7 @@ from draw_landmark import draw_landmarks
 import mediapipe as mp
 from glob import glob
 from os.path import join
-from metric import evaluate_test
+import copy
 parser = argparse.ArgumentParser()
 # parser.add_argument('--input', '--input_template_video', type=str, default='./test/template_video/129.mp4')
 # #'./test/template_video/129.mp4'
@@ -226,66 +226,107 @@ def get_smoothened_landmarks(all_landmarks, windows_T=1):
             all_landmarks[i][j][2] = np.mean([frame_landmarks[j][2] for frame_landmarks in window])  # y
     return all_landmarks
 
+# Dataloader
+class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
+    def get_vidname_list(self, split):
+        filelist = []
+        with open('filelists/{}/{}.txt'.format(filelist_name, split)) as f: # Icey filelists/lrs2/test.txt
+            for line in f:
+                line = line.strip()
+                if ' ' in line: line = line.split()[0] # Icey 6330311066473698535/00011
+                filelist.append(line) # Icey filelist.append(line.split('/')[0])
+        return filelist
 
-csim_n = 0
-csim_sum = 0.
-filelist = []
-with open('filelists/{}/{}.txt'.format(filelist_name, 'test')) as f: # Icey filelists/lrs2/test.txt
-    for line in f:
-        line = line.strip()
-        if ' ' in line: line = line.split()[0] # Icey 6330311066473698535/00011
-        filelist.append(line) # Icey filelist.append(line.split('/')[0])
-absolute_video_path=[]
-for vid_name in tqdm(filelist,total=len(filelist)):
-    absolute_video_path.append(glob(join(args.data_root,vid_name +'.mp4'))[0]) # Icey glob返回的是列表，取字符串
+    def __init__(self, split):
+        filelist = self.get_vidname_list(split)
+        self.absolute_video_path=[]
+        for vid_name in tqdm(filelist,total=len(filelist)):
+            self.absolute_video_path.append(glob(join(args.data_root, vid_name +'.mp4'))[0]) # Icey glob 输入不能是list, 返回的是列表，取字符串
+        print("complete,with available vids: ", len(self.absolute_video_path), '\n')
 
-# prog_bar = tqdm(enumerate(val_data_loader), total=len(val_data_loader))
-for step, input_video_path in enumerate(absolute_video_path):
-    input_audio_path = input_video_path # Icey 后面有检测不是wav转换
+    def __len__(self):
+        return len(self.absolute_video_path)
 
-    if os.path.isfile(input_video_path) and input_video_path.split('.')[1] in ['jpg', 'png', 'jpeg']:
-        args.static = True
+    def __getitem__(self, idx):
+        input_video_path = self.absolute_video_path[idx]
+        # if os.path.isfile(input_video_path) and input_video_path.split('.')[1] in ['jpg', 'png', 'jpeg']:
+        # args.static = True
 
-    outfile_path = os.path.join(output_dir,
-                            '{}_{}_{}_N_{}_Nl_{}.mp4'.format(input_video_path.split('/')[-2], input_video_path.split('/')[-1][:-4], 'result', ref_img_N, Nl)) # Icey '{}_N_{}_Nl_{}.mp4'.format(input_video_path.split('/')[-1][:-4] + 'result', ref_img_N, Nl)
-    if os.path.isfile(input_video_path) and input_video_path.split('.')[1] in ['jpg', 'png', 'jpeg']:
-        args.static = True
+        outfile_path = os.path.join(output_dir,
+                            '{}_{}_N_{}_Nl_{}.mp4'.format(input_video_path.split('/')[-2], input_video_path.split('/')[-1][:-4] + 'result', ref_img_N, Nl)) # Icey '{}_N_{}_Nl_{}.mp4'.format(input_video_path.split('/')[-1][:-4] + 'result', ref_img_N, Nl)
+        # if os.path.isfile(input_video_path) and input_video_path.split('.')[1] in ['jpg', 'png', 'jpeg']:
+        #     args.static = True
 
-    ##(1) Reading input video frames  ###
-    print('Reading video frames ... from', input_video_path)
-    if not os.path.isfile(input_video_path):
-        raise ValueError('the input video file does not exist')
-    elif input_video_path.split('.')[1] in ['jpg', 'png', 'jpeg']: #if input a single image for testing
-        ori_background_frames = [cv2.imread(input_video_path)]
-    else:
-        video_stream = cv2.VideoCapture(input_video_path)
-        fps = video_stream.get(cv2.CAP_PROP_FPS)
-        if fps != 25:
-            print(" input video fps:", fps,',converting to 25fps...')
-            command = 'ffmpeg -y -i ' + input_video_path + ' -r 25 ' + '{}/temp_25fps.avi'.format(temp_dir)
-            subprocess.call(command, shell=True)
-            input_video_path = '{}/temp_25fps.avi'.format(temp_dir)
-            video_stream.release()
+        ##(1) Reading input video frames  ###
+        # print('Reading video frames ... from', input_video_path)
+        if not os.path.isfile(input_video_path):
+            raise ValueError('the input video file does not exist')
+        elif input_video_path.split('.')[1] in ['jpg', 'png', 'jpeg']: #if input a single image for testing
+            ori_background_frames = [cv2.imread(input_video_path)]
+        else:
             video_stream = cv2.VideoCapture(input_video_path)
             fps = video_stream.get(cv2.CAP_PROP_FPS)
-        assert fps == 25
-
-        ori_background_frames = [] #input videos frames (includes background as well as face)
-        frame_idx = 0
-        while 1:
-            still_reading, frame = video_stream.read()
-            if not still_reading:
+            if fps != 25:
+                print(" input video fps:", fps,',converting to 25fps...')
+                command = 'ffmpeg -y -i ' + input_video_path + ' -r 25 ' + '{}/temp_25fps.avi'.format(temp_dir)
+                subprocess.call(command, shell=True)
+                input_video_path = '{}/temp_25fps.avi'.format(temp_dir)
                 video_stream.release()
-                break
-            with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landmarks=True,
-                min_detection_confidence=0.5) as face_mesh: # Icey 人脸的静态 3D 模型，468个点（id, x, y, z），但只用了131个，57+74
-                tmp_lmk = face_mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)) # Icey 进行特征点提取
-                if not tmp_lmk.multi_face_landmarks:
-                    continue  # not detect face
-                else:
-                    ori_background_frames.append(frame)
-                    frame_idx = frame_idx + 1 # 未用idx
+                video_stream = cv2.VideoCapture(input_video_path)
+                fps = video_stream.get(cv2.CAP_PROP_FPS)
+            assert fps == 25
+
+            ori_background_frames = [] #input videos frames (includes background as well as face)
+            frame_idx = 0
+            while 1:
+                still_reading, frame = video_stream.read()
+                if not still_reading:
+                    video_stream.release()
+                    break
+                with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landmarks=True,
+                        min_detection_confidence=0.5) as face_mesh:
+                    tmp_lmk = face_mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    frame_idx = frame_idx + 1 # Icey 暂时没用它记录原来在视频中的帧idx
+                    if not tmp_lmk.multi_face_landmarks:
+                        pass # print("Not detect face!----------------------------------------")
+                    else: 
+                        # print("Detect face!")
+                        # cv2.imwrite(os.path.join('./tmp', str(frame_idx) + '.png'), frame)
+                        ori_background_frames.append(frame)
+                        # print(frame.shape)
+
+        return input_video_path, ori_background_frames, fps, outfile_path
+
+# Icey 输入数据集------------------------------------------------------
+# Icey add all_mp4_path, add loop
+# all_mp4_path = glob(path.join(args.data_root, '*/*.mp4')) # Icey 使用 glob 函数查找符合通配符路径的所有文件
+# create dataset
+val_dataset = Dataset('test_continue')
+val_data_loader = torch.utils.data.DataLoader(
+    val_dataset,
+    batch_size=1, # batch_size_val, # Icey 80
+    shuffle=True, # True
+    drop_last=True,
+    num_workers=1, # num_workers, # Icey 20
+    pin_memory=True
+)
+
+# filelist = []
+# with open('filelists/{}/{}.txt'.format(filelist_name, 'test_continue')) as f: # Icey filelists/lrs2/test.txt
+#     for line in f:
+#         line = line.strip()
+#         if ' ' in line: line = line.split()[0] # Icey 6330311066473698535/00011
+#         filelist.append(line) # Icey filelist.append(line.split('/')[0])
+# absolute_video_path=[]
+# for vid_name in tqdm(filelist,total=len(filelist)):
+#     absolute_video_path.append(glob(join(args.data_root,vid_name +'.mp4'))[0]) # Icey glob返回的是列表，取字符串
+
+prog_bar = tqdm(enumerate(val_data_loader), total=len(val_data_loader))
+for step, (input_video_path, ori_background_frames, fps, outfile_path) in prog_bar:
+    input_video_path = input_video_path[0]
+    input_audio_path = input_video_path # Icey 后面有检测不是wav转换
     input_vid_len = len(ori_background_frames)
+
 
     ##(2) Extracting audio####
     if not input_audio_path.endswith('.wav'):
@@ -317,17 +358,25 @@ for step, input_video_path in enumerate(absolute_video_path):
                             min_detection_confidence=0.5) as face_mesh: # Icey 人脸的静态 3D 模型，468个点（id, x, y, z），但只用了131个，57+74
         # (1) get bounding boxes and lip dist
         for frame_idx, full_frame in enumerate(ori_background_frames):
+            full_frame = np.asarray(full_frame[0])
             h, w = full_frame.shape[0], full_frame.shape[1]
+            
             results = face_mesh.process(cv2.cvtColor(full_frame, cv2.COLOR_BGR2RGB)) # Icey 进行特征点提取
+            #results = face_mesh.process(full_frame[0]) # Icey 进行特征点提取
             if not results.multi_face_landmarks:
-                raise NotImplementedError  # not detect face
-            face_landmarks = results.multi_face_landmarks[0] # Icey 检测到的第一张脸的landmark
+                # boxes.append([None,None,None,None]) # Icey 对齐idx
+                print("not detect face!")
+                # input_vid_len = input_vid_len - 1
+                continue # Icey not detect face for 6332062124509813446/00059.mp4, but skips it when preprocess
+                # raise NotImplementedError  # not detect face
+            face_landmarks = results.multi_face_landmarks[0] # Icey [0]?
 
             ## calculate the lip dist
             dx = face_landmarks.landmark[lip_index[0]].x - face_landmarks.landmark[lip_index[1]].x
             dy = face_landmarks.landmark[lip_index[0]].y - face_landmarks.landmark[lip_index[1]].y
             dist = np.linalg.norm((dx, dy)) # Icey linear线性 algebra代数；norm求范数，2范数是欧氏距离
             lip_dists.append((frame_idx, dist))
+            # print("lip_dists.append((frame_idx, dist))",frame_idx, dist)
 
             # (1)get the marginal landmarks to crop face
             x_min,x_max,y_min,y_max = 999,-999,999,-999
@@ -351,21 +400,28 @@ for step, input_video_path in enumerate(absolute_video_path):
             y_max = min(y_max + plus_pixel / h, 1)
             y1, y2, x1, x2 = int(y_min * h), int(y_max * h), int(x_min * w), int(x_max * w)
             boxes.append([y1, y2, x1, x2])
+            print(y1,y2,x1,x2)
         boxes = np.array(boxes)
 
         # (2)croppd face
         face_crop_results = [[image[y1:y2, x1:x2], (y1, y2, x1, x2)] \
                             for image, (y1, y2, x1, x2) in zip(ori_background_frames, boxes)] # Icey [[图片],(在原图的四个点的坐标)]
-
-        tmp_ori = [[image, (y1, y2, x1, x2)] \
-                            for image, (y1, y2, x1, x2) in zip(ori_background_frames, boxes)] # Icey add
-
+        print("face_crop_results",np.asarray(face_crop_results).shape)
+        print("face_crop_results",np.asarray(face_crop_results[0][1])) # Icey face_crop_results[0][0]=(1,H,W,3)
+        print("face_crop_results",np.asarray(face_crop_results[0][0]).shape)
+        face_crop_tmp = np.asarray(face_crop_results[0][0][0]) # Icey face_crop_results[0][0]=(1,H,W,3)
+        print(face_crop_tmp.shape)
+        cv2.imwrite(os.path.join('./tmp', 'face_crop_results' + '.png'), face_crop_tmp)
+        # Icey (0, 146, 160, 3) dim0 == 0时face_crop_results[0][0][0]索引越界
         # (3)detect facial landmarks
         for frame_idx, full_frame in enumerate(ori_background_frames):
+            full_frame = np.asarray(full_frame[0])
             h, w = full_frame.shape[0], full_frame.shape[1]
             results = face_mesh.process(cv2.cvtColor(full_frame, cv2.COLOR_BGR2RGB))
             if not results.multi_face_landmarks:
-                raise ValueError("not detect face in some frame!")  # not detect
+                # print("not detect face in some frame!")
+                continue # Icey not detect face for 6332062124509813446/00059.mp4, but skips it when preprocess
+                # raise ValueError("not detect face in some frame!")  # not detect
             face_landmarks = results.multi_face_landmarks[0]
 
 
@@ -383,6 +439,8 @@ for step, input_video_path in enumerate(absolute_video_path):
                 [idx, (x - x_min) / (x_max - x_min), (y - y_min) / (y_max - y_min)] for idx, x, y in pose_landmarks]
             content_landmarks = [ \
                 [idx, (x - x_min) / (x_max - x_min), (y - y_min) / (y_max - y_min)] for idx, x, y in content_landmarks]
+            
+
             all_pose_landmarks.append(pose_landmarks)
             all_content_landmarks.append(content_landmarks)
 
@@ -390,11 +448,13 @@ for step, input_video_path in enumerate(absolute_video_path):
     all_pose_landmarks = get_smoothened_landmarks(all_pose_landmarks, windows_T=1)
     all_content_landmarks=get_smoothened_landmarks(all_content_landmarks,windows_T=1)
 
-
+    print("lip_dists_len", len(lip_dists))
     ##randomly select N_l reference landmarks for landmark transformer##
     dists_sorted = sorted(lip_dists, key=lambda x: x[1])
+    print("dists_sorted_len", len(dists_sorted))
     lip_dist_idx = np.asarray([idx for idx, dist in dists_sorted])  #the frame idxs sorted by lip openness
 
+    print("lip_dist_idx_len", len(lip_dist_idx))
     Nl_idxs = [lip_dist_idx[int(i)] for i in torch.linspace(0, input_vid_len - 1, steps=Nl)] # Icey 按照上下唇距离，等距取了相应距离的唇部索引
     Nl_pose_landmarks, Nl_content_landmarks = [], []  #Nl_pose + Nl_content=Nl reference landmarks
     for reference_idx in Nl_idxs:
@@ -425,7 +485,11 @@ for step, input_video_path in enumerate(absolute_video_path):
 
     ##select reference images and draw sketches for rendering according to lip openness## # Icey 两个阶段的参考不是同一批参考图像
     ref_img_idx = [int(lip_dist_idx[int(i)]) for i in torch.linspace(0, input_vid_len - 1, steps=ref_img_N)]
-    ref_imgs = [face_crop_results[idx][0] for idx in ref_img_idx]
+    print("ref_img_idx",ref_img_idx)
+    print("face_crop_results",face_crop_results[0][0][0].shape)
+    for idx in ref_img_idx:
+        cv2.imwrite(os.path.join('./tmp', str(idx) + '.png'), np.asarray(face_crop_results[idx][0][0]))
+    ref_imgs = [np.asarray(face_crop_results[idx][0][0]) for idx in ref_img_idx]
     ## (N,H,W,3)
     ref_img_pose_landmarks, ref_img_content_landmarks = [], []
     for idx in ref_img_idx:
@@ -468,12 +532,11 @@ for step, input_video_path in enumerate(absolute_video_path):
     ref_imgs = torch.FloatTensor(np.asarray(ref_imgs) / 255.0).unsqueeze(0).permute(0, 1, 4, 2, 3).cuda()
     # (1,N,3,H,W)
 
-    ##prepare output video stream##
-    frame_h, frame_w = ori_background_frames[0].shape[:-1] # Icey  shape → (height, width, channels), [:-1] 即不选最后一个通道
-    out_stream = cv2.VideoWriter('{}/result.avi'.format(temp_dir), cv2.VideoWriter_fourcc(*'DIVX'), fps,
+    ##prepare output video strame##
+    frame_h, frame_w = ori_background_frames[0][0].shape[:-1] # Icey  shape → (height, width, channels), [:-1] 即不选最后一个通道
+    out_stream = cv2.VideoWriter('{}/result.avi'.format(temp_dir), cv2.VideoWriter_fourcc(*'DIVX'), int(fps),
                                 (frame_w, frame_h))  # +frame_h*3 # Icey frame_w * 2
-    generate_imgs = []
-    ori_face_imgs = []
+
 
     ##generate final face image and output video##
     input_mel_chunks_len = len(mel_chunks)
@@ -488,12 +551,8 @@ for step, input_video_path in enumerate(absolute_video_path):
     for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len - 2, 1)),
                                         total=len(range(0, input_mel_chunks_len - 2, 1))):
         T_input_frame, T_ori_face_coordinates = [], []
-
         #note: input_frame include background as well as face
-        T_mel_batch, T_crop_face,T_pose_landmarks = [], [], []
-
-        tmp_T_ori = []
-
+        T_mel_batch, T_crop_face,T_pose_landmarks = [], [],[]
 
         # (1) for each batch of T frame, generate corresponding landmarks using landmark generator
         for mel_chunk_idx in range(batch_start_idx, batch_start_idx + T):  # for each T frame
@@ -503,16 +562,14 @@ for step, input_video_path in enumerate(absolute_video_path):
             # 2.input face
             input_frame_idx = int(input_frame_sequence[mel_chunk_idx])
             face, coords = face_crop_results[input_frame_idx]
-            tmp_face_ori, _ = tmp_ori[input_frame_idx]
-            # ori_face_imgs.append(ori_background_frames[input_frame_idx])
-            # print("ori_face_imgs", ori_face_imgs[0].shape)
-            tmp_T_ori.append(tmp_face_ori)
-            T_crop_face.append(face)
-            T_ori_face_coordinates.append((face, coords))  ##input face
+
+            T_crop_face.append(face[0])
+            T_ori_face_coordinates.append((face[0], coords))  ##input face
             # 3.pose landmarks
             T_pose_landmarks.append(all_pose_landmarks[input_frame_idx])
             # 3.background
-            T_input_frame.append(ori_background_frames[input_frame_idx].copy())
+            print(ori_background_frames[input_frame_idx].shape)
+            T_input_frame.append(np.asarray(ori_background_frames[input_frame_idx][0]).copy())
         T_mels = torch.FloatTensor(np.asarray(T_mel_batch)).unsqueeze(1).unsqueeze(0)  # 1,T,1,h,w
         #prepare pose landmarks
         T_pose = torch.zeros((T, 2, 74))  # 74 landmark
@@ -551,14 +608,11 @@ for step, input_video_path in enumerate(absolute_video_path):
         T_target_sketches = torch.stack(T_target_sketches, dim=0).permute(0, 3, 1, 2)  # (T,3,128, 128)
         target_sketches = T_target_sketches.unsqueeze(0).cuda()  # (1,T,3,128, 128)
 
-        # 2.lower-half masked face # Icey Question：没看到mask了
-        ori_face_img = torch.FloatTensor(cv2.resize(T_crop_face[2], (img_size, img_size)) / 255).permute(2, 0, 1).unsqueeze(
+        # 2.lower-half masked face 
+        print("T_crop_face",T_crop_face[2].shape)
+        ori_face_img = torch.FloatTensor(cv2.resize(np.asarray(T_crop_face[2]), (img_size, img_size)) / 255).permute(2, 0, 1).unsqueeze(
             0).unsqueeze(0).cuda()  #(1,1,3,H, W)
-        # ori_face_imgs.append(cv2.resize(T_crop_face[2], (img_size, img_size)))
-        # ori_face_imgs = T_input_frame
-        ori_face_imgs.append(tmp_T_ori[2])
-        # print("ori_face_imgs", ori_face_imgs[0].shape)
-
+        print("ori_face_img", ori_face_img.shape)
         # 3. render the full face
         # require (1,1,3,H,W)   (1,T,3,H,W)  (1,N,3,H,W)   (1,N,3,H,W)  (1,1,1,h,w)
         # return  (1,3,H,W)
@@ -569,11 +623,13 @@ for step, input_video_path in enumerate(absolute_video_path):
 
         # 4. paste each generated face
         y1, y2, x1, x2 = T_ori_face_coordinates[2][1]  # coordinates of face bounding box
+        print("T_input_frame[2]",T_input_frame[2].shape)
         original_background = T_input_frame[2].copy()
         T_input_frame[2][y1:y2, x1:x2] = cv2.resize(gen_face,(x2 - x1, y2 - y1))  #resize and paste generated face
         # 5. post-process
+        print("original_background", original_background.shape)
+        print("T_ori_face_coordinates[2][1]",T_ori_face_coordinates[2][1])
         full = merge_face_contour_only(original_background, T_input_frame[2], T_ori_face_coordinates[2][1],fa)   #(H,W,3)
-        generate_imgs.append(full)
         # 6.output
         # Icey full = np.concatenate([show_sketch, full], axis=1)
         out_stream.write(full)
@@ -584,17 +640,5 @@ for step, input_video_path in enumerate(absolute_video_path):
     command = 'ffmpeg -y -i {} -i {} -strict -2 -q:v 1 {}'.format(input_audio_path, '{}/result.avi'.format(temp_dir), outfile_path)
     subprocess.call(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     print("succeed output results to:", outfile_path)
-    print("***********", len(generate_imgs), len(ori_face_imgs),"***********")
 
-    # csim_n = 0
-    # csim_sum = 0.
-    for idx in range(0, len(ori_face_imgs)):
-        cv2.imwrite(os.path.join('./tmp', 'generate_imgs' + '.png'), generate_imgs[idx])
-        # print("generate_imgs", generate_imgs[idx].shape)
-        cv2.imwrite(os.path.join('./tmp', 'ori_face_imgs' + '.png'), ori_face_imgs[idx])
-        print("Get!")
-        csim_sum = csim_sum + evaluate_test('./tmp/generate_imgs.png', './tmp/ori_face_imgs.png')
-        # csim_sum = csim_sum + evaluate_test(generate_imgs[idx], ori_face_imgs[idx])
-        csim_n = csim_n + 1
-        print(csim_sum/csim_n)
 
