@@ -88,7 +88,7 @@ def evaluate(model, val_data_loader):
 
 
 @torch.no_grad()
-def csim(fake_image, gt, weight = './src/arcface_torch/checkpoints/glint360k_r100.pth', name='r100'):
+def csim(fake_image, gt, weight = './src/arcface_torch/checkpoints/ms1mv3_arcface_r100_fp16.pth', name='r100'): # glint360k_r100.pth
     # 生成、真值
     if fake_image is None:
         raise ValueError('the input generated image does not exist')
@@ -98,7 +98,7 @@ def csim(fake_image, gt, weight = './src/arcface_torch/checkpoints/glint360k_r10
         fake_image = cv2.resize(fake_image, (112, 112))
     
     if gt is None:
-        raise ValueError('the input generated image does not exist')
+        raise ValueError('the input ground truth image does not exist')
         gt = np.random.randint(0, 255, size=(112, 112, 3), dtype=np.uint8)
     else:
         gt = cv2.imread(gt)
@@ -120,11 +120,16 @@ def csim(fake_image, gt, weight = './src/arcface_torch/checkpoints/glint360k_r10
     net = get_model(name, fp16=False)
     net.load_state_dict(torch.load(weight))
     net.eval()
-    feat_gt = net(gt).numpy().T # 转置
+    feat_gt = net(gt).numpy()#.T # 转置
+
+    feat_fake = feat_fake[0]
+    feat_gt = feat_gt[0]
+    # print("feat_fake",feat_fake.shape,type(feat_fake))
+    # print("feat_gt",feat_gt.shape,type(feat_gt))
 
     re_csim = np.dot(feat_fake, feat_gt) / (np.linalg.norm(feat_fake) * np.linalg.norm(feat_gt))
-    print("re_csim[0][0]",re_csim[0][0])
-    return re_csim[0][0]
+    print("re_csim",re_csim)
+    return re_csim
 
 def evaluate_test(fake_image, gt):
     return csim(fake_image, gt)

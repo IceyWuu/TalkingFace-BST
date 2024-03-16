@@ -554,9 +554,11 @@ for step, input_video_path in enumerate(absolute_video_path):
         # 2.lower-half masked face # Icey Question：没看到mask了
         ori_face_img = torch.FloatTensor(cv2.resize(T_crop_face[2], (img_size, img_size)) / 255).permute(2, 0, 1).unsqueeze(
             0).unsqueeze(0).cuda()  #(1,1,3,H, W)
+
         # ori_face_imgs.append(cv2.resize(T_crop_face[2], (img_size, img_size)))
-        # ori_face_imgs = T_input_frame
-        ori_face_imgs.append(tmp_T_ori[2])
+        # ori_face_imgs.append(T_crop_face[2])
+        # ori_face_imgs.append(cv2.resize(tmp_T_ori[2], (img_size, img_size))) # ********
+        ori_face_imgs.append(tmp_T_ori[2]) # 160,160
         # print("ori_face_imgs", ori_face_imgs[0].shape)
 
         # 3. render the full face
@@ -573,7 +575,9 @@ for step, input_video_path in enumerate(absolute_video_path):
         T_input_frame[2][y1:y2, x1:x2] = cv2.resize(gen_face,(x2 - x1, y2 - y1))  #resize and paste generated face
         # 5. post-process
         full = merge_face_contour_only(original_background, T_input_frame[2], T_ori_face_coordinates[2][1],fa)   #(H,W,3)
+        # generate_imgs.append(gen_face) # full ********
         generate_imgs.append(full)
+        # print("gen_face.shape", full.shape)
         # 6.output
         # Icey full = np.concatenate([show_sketch, full], axis=1)
         out_stream.write(full)
@@ -589,11 +593,11 @@ for step, input_video_path in enumerate(absolute_video_path):
     # csim_n = 0
     # csim_sum = 0.
     for idx in range(0, len(ori_face_imgs)):
-        cv2.imwrite(os.path.join('./tmp', 'generate_imgs' + '.png'), generate_imgs[idx])
+        cv2.imwrite(os.path.join('./tmp', 'generate_imgs_crop' + '.png'), generate_imgs[idx])
         # print("generate_imgs", generate_imgs[idx].shape)
-        cv2.imwrite(os.path.join('./tmp', 'ori_face_imgs' + '.png'), ori_face_imgs[idx])
+        cv2.imwrite(os.path.join('./tmp', 'ori_face_imgs_crop' + '.png'), ori_face_imgs[idx])
         print("Get!")
-        csim_sum = csim_sum + evaluate_test('./tmp/generate_imgs.png', './tmp/ori_face_imgs.png')
+        csim_sum = csim_sum + evaluate_test('./tmp/generate_imgs_crop.png', './tmp/ori_face_imgs_crop.png')
         # csim_sum = csim_sum + evaluate_test(generate_imgs[idx], ori_face_imgs[idx])
         csim_n = csim_n + 1
         print(csim_sum/csim_n)

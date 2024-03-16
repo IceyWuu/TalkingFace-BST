@@ -23,6 +23,7 @@ def inference(weight, name, img):
     net.load_state_dict(torch.load(weight))
     net.eval()
     feat = net(img).numpy()
+    
     return feat
     #print(feat)
     
@@ -31,14 +32,14 @@ def inference(weight, name, img):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='PyTorch ArcFace Training')
     parser.add_argument('--network', type=str, default='r100', help='backbone network') # r50
-    parser.add_argument('--weight', type=str, default='glint360k_r100.pth')
+    parser.add_argument('--weight', type=str, default='./checkpoints/glint360k_r100.pth')
     parser.add_argument('--img', type=str, default='0.png')# default=None)
     args = parser.parse_args()
     #inference(args.weight, args.network, args.img)
 
     
-    x1 = inference('../../checkpoints/glint360k_r100.pth','r100','image_for_test/baby1.jpg')
-    x2 = inference('../../checkpoints/glint360k_r100.pth','r100','image_for_test/baby1.jpg').T
+    x1 = inference('./checkpoints/glint360k_r100.pth','r100','image_for_test/1.png')
+    x2 = inference('./checkpoints/glint360k_r100.pth','r100','image_for_test/2.png').T
     
     re = np.dot(x1, x2) / (np.linalg.norm(x1) * np.linalg.norm(x2))
     print(re)
