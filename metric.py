@@ -7,7 +7,7 @@ from piq.feature_extractors import InceptionV3
 from src.arcface_torch.backbones import get_model
 
 
-def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96) cuda
+def compute_generation_quality(fake_image, gt):  # (B*T,3,96,96)   (B*T,3,96,96) cuda
     global global_step
     psnr_values = []
     ssim_values = []
@@ -131,6 +131,64 @@ def csim(fake_image, gt, weight = './src/arcface_torch/checkpoints/ms1mv3_arcfac
     print("re_csim",re_csim)
     return re_csim
 
+
+def my_quality(fake_image, gt): 
+    if fake_image is None:
+        raise ValueError('the input generated image does not exist')
+    else:
+        fake_image = cv2.imread(fake_image)
+        fake_image = torch.from_numpy(fake_image)#/255
+        fake_image_tenser = fake_image.unsqueeze(0).permute(0, 3, 1, 2)/255
+    
+    if gt is None:
+        raise ValueError('the input ground truth image does not exist')
+    else:
+        gt = cv2.imread(gt)
+        gt = torch.from_numpy(gt)#/255
+        gt_tenser = gt.unsqueeze(0).permute(0, 3, 1, 2)/255
+
+    print("fake_image", fake_image_tenser.shape, type(fake_image_tenser))
+
+    psnr_value = psnr(fake_image_tenser, gt_tenser, reduction='none')
+    ssim_value = ssim(fake_image_tenser, gt_tenser, data_range=1., reduction='none')
+
+    fid_metric = FID()
+    feature_extractor = InceptionV3() #.cuda()
+
+
+    # total_images = torch.cat((gt.unsqueeze(0).permute(0, 3, 1, 2), fake_image.unsqueeze(0).permute(0, 3, 1, 2)), 0)
+    gt = gt.unsqueeze(0).permute(0, 3, 1, 2)
+    fake_image = fake_image.unsqueeze(0).permute(0, 3, 1, 2)
+    # print("total_images", total_images.shape)
+    print("fake_image", fake_image.shape)
+
+    gt_feat = fid_metric.compute_feats([
+            {'images': gt},
+        ], feature_extractor=feature_extractor)
+    pd_feats = fid_metric.compute_feats([
+        {'images': fake_image},
+    ], feature_extractor=feature_extractor)
+
+    gt_feat = gt_feat.detach()
+    pd_feats = pd_feats.detach()
+
+    gt_feats = gt_feat.cuda()
+    pd_feats = pd_feat.cuda()
+
+    fid = fid_metric.compute_metric(pd_feats, gt_feats).item()
+
+
+
+    print("psnr_value", psnr_value.shape, type(psnr_value), psnr_value)
+    print("psnr_value", ssim_value.shape, type(ssim_value), ssim_value)
+    print("psnr_value", fid.shape, type(fid), fid)
+
+    return psnr_value, ssim_value, fid
+
+
 def evaluate_test(fake_image, gt):
-    return csim(fake_image, gt)
+    psnr_value, ssim_value, fid = my_quality(fake_image, gt)
+    csim_value = csim(fake_image, gt)
+    return psnr_value, ssim_value, fid, csim_value
+    
     

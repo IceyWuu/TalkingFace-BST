@@ -227,8 +227,11 @@ def get_smoothened_landmarks(all_landmarks, windows_T=1):
     return all_landmarks
 
 
-csim_n = 0
+pic_num = 0
 csim_sum = 0.
+psnr_sum = 0.
+ssim_sum = 0.
+fid_sum = 0.
 filelist = []
 with open('filelists/{}/{}.txt'.format(filelist_name, 'test')) as f: # Icey filelists/lrs2/test.txt
     for line in f:
@@ -590,15 +593,23 @@ for step, input_video_path in enumerate(absolute_video_path):
     print("succeed output results to:", outfile_path)
     print("***********", len(generate_imgs), len(ori_face_imgs),"***********")
 
-    # csim_n = 0
+    # pic_num = 0
     # csim_sum = 0.
     for idx in range(0, len(ori_face_imgs)):
-        cv2.imwrite(os.path.join('./tmp', 'generate_imgs_crop' + '.png'), generate_imgs[idx])
+        cv2.imwrite(os.path.join('./tmp', 'generate_imgs_crop2' + '.png'), generate_imgs[idx])
         # print("generate_imgs", generate_imgs[idx].shape)
-        cv2.imwrite(os.path.join('./tmp', 'ori_face_imgs_crop' + '.png'), ori_face_imgs[idx])
+        cv2.imwrite(os.path.join('./tmp', 'ori_face_imgs_crop2' + '.png'), ori_face_imgs[idx])
         print("Get!")
-        csim_sum = csim_sum + evaluate_test('./tmp/generate_imgs_crop.png', './tmp/ori_face_imgs_crop.png')
-        # csim_sum = csim_sum + evaluate_test(generate_imgs[idx], ori_face_imgs[idx])
-        csim_n = csim_n + 1
-        print(csim_sum/csim_n)
+        psnr_value_tmp, ssim_value_tmp, fid_tmp, csim_tmp = evaluate_test('./tmp/generate_imgs_crop2.png', './tmp/ori_face_imgs_crop2.png')
+        csim_sum = csim_sum + csim_tmp
+        psnr_sum = psnr_sum + psnr_value_tmp
+        ssim_sum = ssim_sum + ssim_value_tmp
+        fid_sum = fid_sum + fid_tmp
+
+        pic_num = pic_num + 1
+
+        print("csim", csim_sum/pic_num)
+        print("psnr", psnr_sum/pic_num)
+        print("ssim", ssim_sum/pic_num)
+        print("fid", fid_sum/pic_num)
 
