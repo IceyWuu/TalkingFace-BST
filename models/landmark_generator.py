@@ -74,24 +74,24 @@ def weight_init(m):
 
 
 class Fusion_transformer_encoder(nn.Module):
-    def __init__(self,T, d_model, nlayers, nhead, dim_feedforward,  # 1024   128
+    def __init__(self,T, d_model, nlayers, nhead, dim_feedforward,  # 1024   128 #Icey 输入的embdding维度d_model=512, 经过feedforward后的维度dim_feedforward=1024
                  dropout=0.1):
         super().__init__()
         self.T=T
         self.position_v = PositionalEmbedding(d_model=512)  #for visual landmarks
         self.position_a = PositionalEmbedding(d_model=512)  #for audio embedding
-        self.modality = nn.Embedding(4, 512, padding_idx=0)  # 1 for pose,  2  for  audio, 3 for reference landmarks
-        self.dropout = nn.Dropout(p=dropout)
+        self.modality = nn.Embedding(4, 512, padding_idx=0)  # 1 for pose,  2  for  audio, 3 for reference landmarks # 长度为4的张量，每个大小是512。torch.nn包下的Embedding，作为训练的一层，随模型训练得到适合的词向量
+        self.dropout = nn.Dropout(p=dropout) # Dropout来避免过拟合，dropout=0.1即10%的数据会填补为0
         encoder_layers = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
-    def forward(self,ref_embedding,mel_embedding,pose_embedding):#(B,Nl,512)  (B,T,512)    (B,T,512)
+    def forward(self,ref_embedding,mel_embedding,pose_embedding):#(B,Nl,512)  (B,T,512)    (B,T,512) # Nl=15
 
         # (1).  positional(temporal) encoding
-        position_v_encoding = self.position_v(pose_embedding)  # (1,  T, 512)
+        position_v_encoding = self.position_v(pose_embedding)  # (1,  T, 512) # Icey (B,T,512)
         position_a_encoding = self.position_a(mel_embedding)
 
-        #(2)  modality encoding
+        #(2)  modality encoding # 模态编码，区分它们来自于不同的模态或来源
         modality_v = self.modality(1 * torch.ones((pose_embedding.size(0), self.T), dtype=torch.int).cuda())
         modality_a = self.modality(2 * torch.ones((mel_embedding.size(0),  self.T), dtype=torch.int).cuda())
 
@@ -101,18 +101,22 @@ class Fusion_transformer_encoder(nn.Module):
             3 * torch.ones((ref_embedding.size(0), ref_embedding.size(1)), dtype=torch.int).cuda())
 
         #(3) concat tokens
-        input_tokens = torch.cat((ref_tokens, audio_tokens, pose_tokens), dim=1)  # (B, 1+T+T, 512 )
+        input_tokens = torch.cat((ref_tokens, audio_tokens, pose_tokens), dim=1)  # (B, 1+T+T, 512 ) #Icey (B,Nl+T+T,512)
         input_tokens = self.dropout(input_tokens)
 
         #(4) input to transformer
         output = self.transformer_encoder(input_tokens)
         return output
+        # output_tokens=self.fusion_transformer(ref_embedding,mel_embedding,pose_embedding)
 
+        # #4.output  landmark
+        # lip_embedding=output_tokens[:,N_l:N_l+T,:] #(B,T,dim)
+        # jaw_embedding=output_tokens[:,N_l+T:,:] #(B,T,dim)
 
-class Landmark_generator(nn.Module):
+class Landmark_generator(nn.Module): # T=5 d_model=512 nlayers=4 nhead=4 dim_feedforward=1024 dropout=0.1
     def __init__(self,T,d_model,nlayers,nhead,dim_feedforward,dropout=0.1):
         super(Landmark_generator, self).__init__()
-        self.mel_encoder=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱
+        self.mel_encoder=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱 
             Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
             Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
             Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
@@ -132,8 +136,8 @@ class Landmark_generator(nn.Module):
             Conv2d(512, 512, kernel_size=1, stride=1, padding=0,act='Tanh'),
             )
 
-        self.ref_encoder=nn.Sequential( # (B*Nl,2,131) # Icey 参考landmark
-            Conv1d(2, 4, 3, 1, 1),  #131
+        self.ref_encoder=nn.Sequential( # (B*Nl,2,131) # Icey 参考landmark #B=128, Nl=15
+            Conv1d(2, 4, 3, 1, 1),  #131 #一维卷积，输入数据有2个通道，卷积核的数量为4，卷积核的大小为3，步长为1，填充为1。
 
             Conv1d(4, 8, 3, 2,1), #66
             Conv1d(8, 8, 3, 1, 1,residual=True),
@@ -161,7 +165,7 @@ class Landmark_generator(nn.Module):
             Conv1d(256, 512, 3, 1,0), #1
             Conv1d(512, 512, 1, 1,0,act='Tanh'), #1
         )
-        self.pose_encoder=nn.Sequential(   # (B*T,2,74) # Icey 姿态landmark
+        self.pose_encoder=nn.Sequential(   # (B*T,2,74) # Icey 姿态landmark 
             Conv1d(2, 4, 3, 1, 1),
 
             Conv1d(4, 8, 3, 1, 1),  #74
@@ -192,15 +196,16 @@ class Landmark_generator(nn.Module):
             Conv1d(512, 512, 1, 1, 0, residual=True,act='Tanh'),
         )
         # Icey 融合 Transformer 编码器，用于将三个编码器的特征进行融合和建模。
-        self.fusion_transformer = Fusion_transformer_encoder(T,d_model,nlayers,nhead,dim_feedforward,dropout)
+        # T=5 d_model=512 nlayers=4 nhead=4 dim_feedforward=1024 dropout=0.1
+        self.fusion_transformer = Fusion_transformer_encoder(T,d_model,nlayers,nhead,dim_feedforward,dropout) 
 
-        self.mouse_keypoint_map = nn.Linear(d_model, 40 * 2) # Icey 线性层，将融合后的特征映射到嘴部的关键点坐标
-        self.jaw_keypoint_map = nn.Linear(d_model, 17 * 2) # Icey 线性层，将融合后的特征映射到下颌的关键点坐标
+        self.mouse_keypoint_map = nn.Linear(d_model, 40 * 2) # Icey 将融合后的特征映射到嘴部的关键点坐标。in_features，out_features
+        self.jaw_keypoint_map = nn.Linear(d_model, 17 * 2) # Icey 将融合后的特征映射到下颌的关键点坐标
 
         self.apply(weight_init) # Icey 初始化权重和bias
         self.Norm=nn.LayerNorm(512) # Icey  normalization layer
 
-    def forward(self, T_mels, T_pose, Nl_pose, Nl_content):
+    def forward(self, T_mels, T_pose, Nl_pose, Nl_content): # Icey B=128 training landmark, =96 renderer; B=1 inference, T=5, N_l=15
                 # (B,T,1,hv,wv) (B,T,2,74) (B,N_l,2,74)  (B,N_l,2,57)
         B,T,N_l= T_mels.size(0),T_mels.size(1),Nl_content.size(1)
 
@@ -208,7 +213,7 @@ class Landmark_generator(nn.Module):
         Nl_ref = torch.cat([Nl_pose, Nl_content], dim=3)  #(B,Nl,2,131=74+57)
         Nl_ref = torch.cat([Nl_ref[i] for i in range(Nl_ref.size(0))], dim=0)  # (B*Nl,2,131)
 
-        T_mels=torch.cat([T_mels[i] for i in range(T_mels.size(0))],dim=0) #(B*T,1,hv,wv)
+        T_mels=torch.cat([T_mels[i] for i in range(T_mels.size(0))],dim=0) #(B*T,1,hv,wv) # hv频率，wv时间步，200 = 12.5 ms
         T_pose = torch.cat([T_pose[i] for i in range(T_pose.size(0))],dim=0)  # (B*T,2,74)
 
         # 2. get embedding

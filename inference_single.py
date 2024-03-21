@@ -26,7 +26,7 @@ args = parser.parse_args()
 ref_img_N = 25 # Icey 参考图片，渲染部分
 Nl = 15 # Icey 参考图像的landmark，参考图像的数量
 T = 5 # Icey 推理时每个batch取的帧数
-mel_step_size = 16 # Icey 梅尔图谱的每个chunk的大小
+mel_step_size = 16 # 16000/200=80，fps=25，T=5帧，一秒mel有80个（采样点,16khz）。80/5=16，mel的每16个采样点可覆盖5帧。80/25=3.2，mel的每3.2个采样点可覆盖1帧
 img_size = 128
 
 mp_face_mesh = mp.solutions.face_mesh
@@ -236,7 +236,7 @@ wav = audio.load_wav(input_audio_path, 16000) # Icey 音频将自动重新采样
 mel = audio.melspectrogram(wav)  # (H,W)   extract mel-spectrum
 ##read audio mel into list###
 mel_chunks = []  # each mel chunk correspond to 5 video frames, used to generate one video frame
-mel_idx_multiplier = 80. / fps
+mel_idx_multiplier = 80. / fps # 16000/200=80，fps=25，T=5帧，一秒mel有80个（采样点16khz）。80/5=16，mel的每16个采样点可覆盖5帧。80/25=3.2，mel的每3.2个采样点可覆盖1帧
 mel_chunk_idx = 0
 while 1:
     start_idx = int(mel_chunk_idx * mel_idx_multiplier)
@@ -433,7 +433,7 @@ input_frame_sequence = input_frame_sequence + list(reversed(input_frame_sequence
 input_frame_sequence=input_frame_sequence*((num_of_repeat+1)//2) # input_frame_sequence * 2 表示序列重复两次
 
 # Icey batch_idx, batch_start_idx:在每次迭代中，batch_idx将保存当前批处理的索引，batch_start_idx将保存当前批处理的起始索引。
-for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len - 2, 1)),
+for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len - 2, 1)), # 1 个chunk是5帧，16个mel
                                        total=len(range(0, input_mel_chunks_len - 2, 1))):
     T_input_frame, T_ori_face_coordinates = [], []
     #note: input_frame include background as well as face
@@ -491,7 +491,7 @@ for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len -
     T_target_sketches = torch.stack(T_target_sketches, dim=0).permute(0, 3, 1, 2)  # (T,3,128, 128)
     target_sketches = T_target_sketches.unsqueeze(0).cuda()  # (1,T,3,128, 128)
 
-    # 2.lower-half masked face # Icey Question：没看到mask了
+    # 2.lower-half masked face # T_crop_face[2] 是 T 张里面中间那张（T=5），target_sketches就是围绕这张crop_face的草图了
     ori_face_img = torch.FloatTensor(cv2.resize(T_crop_face[2], (img_size, img_size)) / 255).permute(2, 0, 1).unsqueeze(
         0).unsqueeze(0).cuda()  #(1,1,3,H, W)
 

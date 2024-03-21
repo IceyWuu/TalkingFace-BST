@@ -94,7 +94,7 @@ class SPADE(torch.nn.Module):
         self.spade_layer_2 = SPADELayer(num_channel, num_channel_modulation, hidden_size, kernel_size=kernel_size,
                                         stride=stride, padding=padding)
 
-    def forward(self, input, modulations):
+    def forward(self, input, modulations): # stride=1，在forward里输入输出向量大小不变
         input = self.spade_layer_1(input, modulations)
         input = self.leaky_relu(input)
         input = self.conv_1(input)
@@ -119,11 +119,11 @@ class Conv2d(nn.Module):
             out += x
         return self.act(out)
 
-def downsample(x, size):
+def downsample(x, size): # Icey: driving_sketch:(B*T, 3, H, W) size:(64, 64)
     if len(x.size()) == 5:
         size = (x.size(2), size[0], size[1])
         return torch.nn.functional.interpolate(x, size=size, mode='nearest')
-    return  torch.nn.functional.interpolate(x, size=size, mode='nearest')
+    return  torch.nn.functional.interpolate(x, size=size, mode='nearest') # Icey Mode mode='nearest' matches buggy OpenCV’s INTER_NEAREST interpolation algorithm
 
 
 def convert_flow_to_deformation(flow):
@@ -175,9 +175,9 @@ def warping(source_image, deformation):
     _, _, h, w = source_image.shape
     if h_old != h or w_old != w:
         deformation = deformation.permute(0, 3, 1, 2)
-        deformation = torch.nn.functional.interpolate(deformation, size=(h, w), mode='bilinear')
+        deformation = torch.nn.functional.interpolate(deformation, size=(h, w), mode='bilinear') # 将形变张量进行插值（interpolation），使其大小与输入图像相同
         deformation = deformation.permute(0, 2, 3, 1)
-    return torch.nn.functional.grid_sample(source_image, deformation)
+    return torch.nn.functional.grid_sample(source_image, deformation) # 对输入图像进行变形，利用形变张量中的信息进行像素插值，得到输出的变形后的图像
 
 
 class DenseFlowNetwork(torch.nn.Module):
@@ -186,7 +186,7 @@ class DenseFlowNetwork(torch.nn.Module):
 
         # Convolutional Layers
         self.conv1 = torch.nn.Conv2d(num_channel, 32, kernel_size=7, stride=1, padding=3)
-        self.conv1_bn = torch.nn.BatchNorm2d(num_features=32, affine=True)
+        self.conv1_bn = torch.nn.BatchNorm2d(num_features=32, affine=True) # Icey: C from an expected input of size (N,C,H,W), output shape = input
         self.conv1_relu = torch.nn.ReLU()
 
         self.conv2 = torch.nn.Conv2d(32, 256, kernel_size=3, stride=2, padding=1)
@@ -197,7 +197,7 @@ class DenseFlowNetwork(torch.nn.Module):
         # SPADE Blocks
         self.spade_layer_1 = SPADE(256, num_channel_modulation, hidden_size)
         self.spade_layer_2 = SPADE(256, num_channel_modulation, hidden_size)
-        self.pixel_shuffle_1 = torch.nn.PixelShuffle(2)
+        self.pixel_shuffle_1 = torch.nn.PixelShuffle(2) # Icey r = 2, (∗,C × r^2 ,H,W) to (∗,C,H × r,W × r)
         self.spade_layer_4 = SPADE(64, num_channel_modulation, hidden_size)
 
         # Final Convolutional Layer
@@ -217,9 +217,9 @@ class DenseFlowNetwork(torch.nn.Module):
         wrapped_h1_sum, wrapped_h2_sum, wrapped_ref_sum=0.,0.,0.
         softmax_denominator=0.
         T = 1  # during rendering, generate T=1 image  at a time
-        for ref_idx in range(ref_N): # each ref img provide information for each B*T frame
+        for ref_idx in range(ref_N): # each ref img provide information for each B*T frame # 选择N帧中的1帧
             ref_img= ref_N_frame_img[:, ref_idx]  #(B, 3, H, W)
-            ref_img = ref_img.unsqueeze(1).expand(-1, T, -1, -1, -1)  # (B,T, 3, H, W)
+            ref_img = ref_img.unsqueeze(1).expand(-1, T, -1, -1, -1)  # (B,T, 3, H, W) # -1 表示保持该维度的原始大小
             ref_img = torch.cat([ref_img[i] for i in range(ref_img.size(0))], dim=0)  # (B*T, 3, H, W)
 
             ref_sketch = ref_N_frame_sketch[:, ref_idx] #(B, 3, H, W)
@@ -233,7 +233,9 @@ class DenseFlowNetwork(torch.nn.Module):
             h2 = self.conv2_relu(self.conv2_bn(self.conv2(h1)))    #(256,64,64)
             # SPADE Blocks
             downsample_64 = downsample(driving_sketch, (64, 64))   # driving_sketch:(B*T, 3, H, W)
+            # 将 driving_sketch 下采样到了 (64, 64) 的大小，大小为 (B*T, 3, 64, 64)，和h2一样
 
+            # Icey B*T
             spade_layer = self.spade_layer_1(h2, downsample_64)  #(256,64,64)
             spade_layer = self.spade_layer_2(spade_layer, downsample_64)   #(256,64,64)
 
@@ -286,7 +288,7 @@ class TranslationNetwork(torch.nn.Module):
 
         # Encoder
         self.conv1 = torch.nn.Conv2d(in_channels=3+3*5, out_channels=32, kernel_size=7, stride=1, padding=3, bias=False)
-        self.conv1_bn = torch.nn.BatchNorm2d(num_features=32, affine=True)
+        self.conv1_bn = torch.nn.BatchNorm2d(num_features=32, affine=True) # affine=True，给该层添加可学习的仿射变换参数
         self.conv1_relu = torch.nn.ReLU()
 
         self.conv2 = torch.nn.Conv2d(in_channels=32, out_channels=256, kernel_size=3, stride=2, padding=1, bias=False)
@@ -296,7 +298,7 @@ class TranslationNetwork(torch.nn.Module):
         # Decoder
         self.spade_1 = SPADE(num_channel=256, num_channel_modulation=256)
         self.adain_1 = AdaIN(256,512)
-        self.pixel_suffle_1 = nn.PixelShuffle(upscale_factor=2)
+        self.pixel_suffle_1 = nn.PixelShuffle(upscale_factor=2) # Icey r = 2, (∗,C × r^2 ,H,W) to (∗,C,H × r,W × r)
 
         self.spade_2 = SPADE(num_channel=64, num_channel_modulation=32)
         self.adain_2 = AdaIN(input_channel=64,modulation_channel=512)
@@ -307,12 +309,12 @@ class TranslationNetwork(torch.nn.Module):
         self.leaky_relu = torch.nn.LeakyReLU()
         self.conv_last = torch.nn.Conv2d(in_channels=64, out_channels=3, kernel_size=7, stride=1, padding=3, bias=False)
         self.Sigmoid=torch.nn.Sigmoid()
-    def forward(self, translation_input, wrapped_ref, wrapped_h1, wrapped_h2, T_mels):
+    def forward(self, translation_input, wrapped_ref, wrapped_h1, wrapped_h2, T_mels): # Icey: h=w=128
         #              (B,3+3,H,W)   (B,3,128,128)  (B,32,128,128) (B,256,64,64) (B,T,1,h,w)  #T=1
-        # Encoder
+        # Encoder   Icey(B,3+3*5,H,W)
         T_mels=torch.cat([T_mels[i] for i in range(T_mels.size(0))],dim=0)# B*T,1,h,w
-        x = self.conv1_relu(self.conv1_bn(self.conv1(translation_input)))    #32,128,128
-        x = self.conv2_relu(self.conv2_bn(self.conv2(x)))  #256,64,64
+        x = self.conv1_relu(self.conv1_bn(self.conv1(translation_input)))    #B,32,128,128
+        x = self.conv2_relu(self.conv2_bn(self.conv2(x)))  #B,256,64,64
 
         audio_feature = self.audio_encoder(T_mels).squeeze(-1).permute(0,2,1) #(B*T,1,512)
 
@@ -358,7 +360,7 @@ class Renderer(torch.nn.Module):
         gt_mask_face = gt_face.clone()
         gt_mask_face[:, :, gt_mask_face.size(2) // 2:, :] = 0  # (B,3,H,W) # Icey 高度设为原来的一半了，(B, C, H, W) → 批量数、通道数、高、宽
         #
-        translation_input=torch.cat([gt_mask_face, target_sketches], dim=1) #  (B*T,3+3,H,W)
+        translation_input=torch.cat([gt_mask_face, target_sketches], dim=1) #  (B*T,3+3,H,W) #Icey (B,3+3*5,H,W)
         generated_face = self.translation(translation_input, wrapped_ref, wrapped_h1, wrapped_h2, audio_mels) #translation_input
 
         perceptual_gen_loss = self.perceptual(generated_face, gt_face, use_style_loss=True,

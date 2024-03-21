@@ -29,7 +29,7 @@ num_workers = 20
 Project_name = 'renderer_T1_ref_N3'   #Project_name
 finetune_path =None
 ref_N = 3
-T = 1
+T = 1 # save_sample_images_gen
 print('Project_name:', Project_name)
 batch_size = 80 # Icey 96       #### batch_size
 batch_size_val = 80 # Icey 96    #### batch_size
@@ -336,6 +336,7 @@ if __name__ == '__main__':
         running_warp_loss,running_gen_loss= 0.,0.
         for step, (T_frame_img, T_frame_sketch, ref_N_frame_img, ref_N_frame_sketch, T_mels) in prog_bar:
             #    (B,T,3,H,W)   (B,T,3,H,W)       (B,ref_N,3,H,W)   (B,ref_N,3,H,W) B,T,1,h,w
+            # Icey (B,1,3,H,W)  (B,T=5,3,H,W)       (B,ref_N,3,H,W)   (B,ref_N,3,H,W) B,T,1,h,w
             model.train()
             disc.train()
             optimizer.zero_grad()
@@ -370,7 +371,7 @@ if __name__ == '__main__':
                 for j in range(len(pred_fake[i]) - 1):
                     loss_G_GAN_Feat += D_weights * feat_weights * \
                                        criterionFeat(pred_fake[i][j], pred_real[i][j].detach()).mean() * 2.5
-            if global_epoch>25:
+            if global_epoch>25: # 大于25个epoch后才会训练 translation module 
                 loss = 2.5*perceptual_warp_loss+4*perceptual_gen_loss+0.1*2.5*loss_G_GAN+ loss_G_GAN_Feat
             else:
                 loss = 2.5 * perceptual_warp_loss+0*perceptual_gen_loss

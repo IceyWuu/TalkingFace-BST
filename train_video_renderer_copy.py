@@ -14,10 +14,8 @@ import face_alignment
 from piq.feature_extractors import InceptionV3
 # from models import define_D
 # from loss import GANLoss
-from models import Renderer 
-from models import Landmark_generator as Landmark_transformer 
-import mediapipe as mp
-import subprocess
+from models import Renderer
+from models import Landmark_generator as Landmark_transformer
 import argparse
 parser=argparse.ArgumentParser()
 parser.add_argument('--sketch_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
@@ -26,26 +24,12 @@ parser.add_argument('--face_img_root',default='/home/zhenglab/wuyubing/TalkingFa
                     help='root path for face frame images') # Icey',required=True'
 parser.add_argument('--audio_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
                     help='root path for audio mel') # Icey',required=True'
-parser.add_argument('--landmarks_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
-                    help='root path for preprocessed  landmarks')
 parser.add_argument('--landmark_gen_checkpoint_path', type=str, default='./test/checkpoints/landmarkgenerator_checkpoint.pth')
 parser.add_argument('--renderer_checkpoint_path', type=str, default='./test/checkpoints/renderer_checkpoint.pth')
-parser.add_argument('--static', type=bool, help='whether only use  the first frame for inference', default=False)
-parser.add_argument("--data_root", type=str,help="Root folder of the LRS2 dataset", default='/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main')
-parser.add_argument('--output_dir', type=str, default='./test_result')
 args=parser.parse_args()
-
-temp_dir = 'tempfile_of_{}'.format(output_dir.split('/')[-1])
-os.makedirs(output_dir, exist_ok=True)
-os.makedirs(temp_dir, exist_ok=True)
-data_root = args.data_root
-landmark_root=args.landmarks_root
 # add checkpoints
 landmark_gen_checkpoint_path = args.landmark_gen_checkpoint_path
 renderer_checkpoint_path =args.renderer_checkpoint_path
-# add mesh
-mp_face_mesh = mp.solutions.face_mesh
-drawing_spec = mp.solutions.drawing_utils.DrawingSpec(thickness=1, circle_radius=1)
 #other parameters
 num_workers = 20
 Project_name = 'batch_inference'   #Project_name
@@ -154,180 +138,58 @@ content_landmark_idx = all_landmarks_idx - pose_landmark_idx
 # criterionFeat = torch.nn.L1Loss()
 class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
     def get_vid_name_list(self, split):
-        video_list = []
+        filelist = []
         with open('filelists/{}/{}.txt'.format(filelist_name, split)) as f:
             for line in f:
                 line = line.strip()
                 if ' ' in line: line = line.split()[0]
-                video_list.append(line) # [6330311066473698535/00011, ...]
-        return video_list
-    
+                filelist.append(line)
+        return filelist
 
     def __init__(self, split):
         min_len = 25
-        vid_name_lists= self.get_vid_name_list(split) # [6330311066473698535/00011, ...]
-        # all_video_in_frames = get_video_list(vid_name_lists)
-        self.available_video_img_names=[]
-        self.available_video_lmk_names=[]
+        vid_name_lists= self.get_vid_name_list(split)
+        self.available_video_names=[]
         print("filter videos with min len of ",min_len,'....')
         for vid_name in tqdm(vid_name_lists,total=len(vid_name_lists)):
             img_paths = list(glob(join(face_img_root,vid_name, '*.png')))
-            pkl_paths = list(glob(join(landmark_root,vid_name, '*.npy'))) # Icey glob 函数，root目录要用绝对路径，否则返回列表为空，导致got num_samples=0
-            vid_img_len=len(img_paths)
-            vid_lmk_len=len(pkl_paths)
-            if vid_img_len >= min_len:
-                self.available_video_img_names.append((vid_name,vid_img_len))
-            if vid_lmk_len >= min_len:
-                self.available_video_lmk_names.append((vid_name,vid_lmk_len))
-        print("complete,with available img vids: ", len(self.available_video_img_names), '\n')
-        print("complete,with available lmk vids: ", len(self.available_video_lmk_names), '\n')
+            vid_len=len(img_paths)
+            if  vid_len>= min_len:
+                self.available_video_names.append((vid_name,vid_len))
+        print("complete,with available vids: ", len(self.available_video_names), '\n')
 
     def normalize_and_transpose(self, window):
         x = np.asarray(window) / 255.
         x = np.transpose(x, (0, 3, 1, 2))
         return torch.FloatTensor(x)  # B,3,H,W
     def __len__(self):
-        return len(self.available_video_img_names) # Icey，从同一个视频出来，两个长度一样
+        return len(self.available_video_names)
 
     def __getitem__(self, idx):
-        #-------------------------landmark content generate----------------------------------------------------
         while 1:
-            window_T = 5
-            vid_lmk_idx = random.randint(0, len(self.available_video_lmk_names) - 1) # idx
-            vid_lmk_name = self.available_video_lmk_names[vid_lmk_idx][0] # available_video_lmk_names = [(vid_name, vid_len), ...]
-            vid_lmk_len=self.available_video_lmk_names[vid_lmk_idx][1]
-            # 00.randomly select a window of T video frames
-            random_start_idx = random.randint(2, vid_lmk_len - window_T - 2)
-            T_idxs = list(range(random_start_idx, random_start_idx + window_T))
-
-            # 01. get reference landmarks
-            all_list=[i for i in range(vid_lmk_len) if i not in T_idxs]
-            Nl_idxs = random.sample(all_list, Nl)
-            Nl_landmarks_paths = [os.path.join(landmark_root, vid_lmk_name, str(idx) + '.npy') for idx in Nl_idxs]
-
-            Nl_pose_landmarks,Nl_content_landmarks= [],[]
-            for frame_landmark_path in Nl_landmarks_paths:
-                if not os.path.exists(frame_landmark_path):
-                    break
-                landmarks=np.load(frame_landmark_path,allow_pickle=True).item()
-                Nl_pose_landmarks.append(landmarks['pose_landmarks'])
-                Nl_content_landmarks.append(landmarks['content_landmarks'])
-            if len(Nl_pose_landmarks) != Nl:
-                continue
-            Nl_pose = torch.zeros((Nl, 2, 74))  # 74 landmark
-            Nl_content = torch.zeros((Nl, 2, 57))  # 57 landmark
-            for idx in range(Nl):
-                Nl_pose_landmarks[idx] = sorted(Nl_pose_landmarks[idx],
-                                               key=lambda land_tuple: ori_sequence_idx.index(land_tuple[0]))
-                Nl_content_landmarks[idx] = sorted(Nl_content_landmarks[idx],
-                                                  key=lambda land_tuple: ori_sequence_idx.index(land_tuple[0]))
-
-                Nl_pose[idx, 0, :] = torch.FloatTensor(
-                    [Nl_pose_landmarks[idx][i][1] for i in range(len(Nl_pose_landmarks[idx]))])  # x
-                Nl_pose[idx, 1, :] = torch.FloatTensor(
-                    [Nl_pose_landmarks[idx][i][2] for i in range(len(Nl_pose_landmarks[idx]))])  # y
-
-                Nl_content[idx, 0, :] = torch.FloatTensor(
-                    [Nl_content_landmarks[idx][i][1] for i in range(len(Nl_content_landmarks[idx]))])  # x
-                Nl_content[idx, 1, :] = torch.FloatTensor(
-                    [Nl_content_landmarks[idx][i][2] for i in range(len(Nl_content_landmarks[idx]))])  # y
-            # 02. get window_T pose landmark and content landmark
-            T_ladnmark_paths = [os.path.join(landmark_root, vid_lmk_name, str(idx) + '.npy') for idx in T_idxs]
-            T_pose_landmarks,T_content_landmarks=[],[]
-            for frame_landmark_path in T_ladnmark_paths:
-                if not os.path.exists(frame_landmark_path):
-                    break
-                landmarks=np.load(frame_landmark_path,allow_pickle=True).item()
-                T_pose_landmarks.append(landmarks['pose_landmarks'])
-                T_content_landmarks.append(landmarks['content_landmarks'])
-            if len(T_pose_landmarks)!=window_T:
-                continue
-            T_pose=torch.zeros((window_T,2,74))   #74 landmark
-            T_content=torch.zeros((window_T,2,57))  #57 landmark
-            for idx in range(window_T):
-                T_pose_landmarks[idx]=sorted(T_pose_landmarks[idx],key=lambda land_tuple:ori_sequence_idx.index(land_tuple[0]))
-                T_content_landmarks[idx] = sorted(T_content_landmarks[idx],key=lambda land_tuple: ori_sequence_idx.index(land_tuple[0]))
-
-                T_pose[idx,0,:]=torch.FloatTensor([T_pose_landmarks[idx][i][1] for i in range(len(T_pose_landmarks[idx]))] ) #x
-                T_pose[idx,1,:]=torch.FloatTensor([T_pose_landmarks[idx][i][2] for i in range(len(T_pose_landmarks[idx]))]) #y
-
-                T_content[idx, 0, :] = torch.FloatTensor([T_content_landmarks[idx][i][1] for i in range(len(T_content_landmarks[idx]))])  # x
-                T_content[idx, 1, :] = torch.FloatTensor([T_content_landmarks[idx][i][2] for i in range(len(T_content_landmarks[idx]))])  # y
-            # 03. get window_T audio
-            try:
-                audio_mel = np.load(join(args.pre_audio_root,vid_lmk_name, "audio.npy"))
-            except Exception as e:
-                continue
-            T_mels = []
-            for frame_idx in T_idxs:
-                mel_start_frame_idx = frame_idx - 2  ###around the frame
-                if mel_start_frame_idx < 0:
-                    break
-                start_idx = int(80. * (mel_start_frame_idx / float(fps)))
-                m = audio_mel[start_idx: start_idx + mel_step_size, :]  # get five frames around
-                if m.shape[0] != mel_step_size:  # in the end of vid
-                    break
-                T_mels.append(m.window_T)  # transpose
-            if len(T_mels) != window_T:
-                continue
-            T_mels = np.asarray(T_mels)  # (T,hv,wv)
-            T_mels = torch.FloatTensor(T_mels).unsqueeze(1)  # (T,1,hv,wv)
-
-            #landmark  generator inference
-            landmark_generator_model.eval()
-            T_mels, T_pose,Nl_pose,Nl_content = T_mels.cuda(non_blocking=True), T_pose.cuda(non_blocking=True), \
-                                                                    Nl_pose.cuda(non_blocking=True), Nl_content.cuda(non_blocking=True)
-            #     (T,1,hv,wv) (T,2,74) 
-            with torch.no_grad():  # require    (1,T,1,hv,wv)(1,T,2,74)(1,T,2,57)
-                predict_content = landmark_generator_model(T_mels, T_pose, Nl_pose,Nl_content)  # (1*T,2,57)
-            T_pose = torch.cat([T_pose[i] for i in range(T_pose.size(0))], dim=0)  # (1*T,2,74)
-            T_predict_full_landmarks = torch.cat([T_pose, predict_content], dim=2).cpu().numpy()  # (1*T,2,131) # Icey 预测和参考合成整脸landmark
-
-            #----------
-        
-            # #1.draw target sketch
-            # T_target_sketches = []
-            # for frame_idx in range(T):
-            #     full_landmarks = T_predict_full_landmarks[frame_idx]  # (2,131)
-            #     h, w = T_crop_face[frame_idx].shape[0], T_crop_face[frame_idx].shape[1]
-            #     drawn_sketech = np.zeros((int(h * img_size / min(h, w)), int(w * img_size / min(h, w)), 3))
-            #     mediapipe_format_landmarks = [LandmarkDict(ori_sequence_idx[full_face_landmark_sequence[idx]]
-            #                                             , full_landmarks[0, idx], full_landmarks[1, idx]) for idx in
-            #                                 range(full_landmarks.shape[1])]
-            #     drawn_sketech = draw_landmarks(drawn_sketech, mediapipe_format_landmarks, connections=FACEMESH_CONNECTION,
-            #                                 connection_drawing_spec=drawing_spec)
-            #     drawn_sketech = cv2.resize(drawn_sketech, (img_size, img_size))  # (128, 128, 3)
-            #     if frame_idx == 2:
-            #         show_sketch = cv2.resize(drawn_sketech, (frame_w, frame_h)).astype(np.uint8)
-            #     T_target_sketches.append(torch.FloatTensor(drawn_sketech) / 255)
-            # T_target_sketches = torch.stack(T_target_sketches, dim=0).permute(0, 3, 1, 2)  # (T,3,128, 128)
-            # # target_sketches = T_target_sketches.unsqueeze(0).cuda()  # (1,T,3,128, 128)
-
-        #--------------------------data for render-------------------------------------------------------------------
-        #while 1:
-            vid_img_idx = random.randint(0, len(self.available_video_names) - 1) # idx
-            vid_img_name = self.available_video_names[vid_img_idx][0]
-            vid_img_len = self.available_video_names[vid_img_idx][1]
-            face_img_paths = list(glob(join(face_img_root,vid_img_name, '*.png')))
+            vid_idx = random.randint(0, len(self.available_video_names) - 1)
+            vid_name = self.available_video_names[vid_idx][0]
+            vid_len = self.available_video_names[vid_idx][1]
+            face_img_paths = list(glob(join(face_img_root,vid_name, '*.png')))
 
             # 1.randomly select a windows of 5 frame
             window_T=5
-            random_start_idx = random.randint(0,vid_img_len-window_T)
+            random_start_idx = random.randint(0,vid_len-window_T)
             T_idxs = list(range(random_start_idx, random_start_idx + window_T))
 
             # 2. read  face image and sketch
-            T_face_paths = [os.path.join(face_img_root, vid_img_name, str(idx) + '.png') for idx in T_idxs]
+            T_face_paths = [os.path.join(face_img_root, vid_name, str(idx) + '.png') for idx in T_idxs]
             ref_N_fpaths = random.sample(face_img_paths, ref_N)
 
 
             T_frame_img=[]
             T_frame_sketch = []
             for img_path in T_face_paths:
-                # sketch_path = os.path.join(sketch_root,
-                #             '/'.join(img_path.split('/')[-3:]))
-                if os.path.isfile(img_path) :#  and os.path.isfile(sketch_path):
+                sketch_path = os.path.join(sketch_root,
+                            '/'.join(img_path.split('/')[-3:]))
+                if os.path.isfile(img_path)  and os.path.isfile(sketch_path):
                     T_frame_img.append(cv2.resize(cv2.imread(img_path),(img_size,img_size)))
-                    # T_frame_sketch.append(cv2.imread(sketch_path))
+                    T_frame_sketch.append(cv2.imread(sketch_path))
                 else:
                     break
             if len(T_frame_img)!=window_T:  #T (H,W,3)
@@ -335,11 +197,11 @@ class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
 
             ref_N_frame_img,ref_N_frame_sketch = [],[]
             for img_path in ref_N_fpaths:
-                # sketch_path = os.path.join(sketch_root,
-                #                            '/'.join(img_path.split('/')[-3:]))
-                if os.path.isfile(img_path):#  and os.path.isfile(sketch_path):
+                sketch_path = os.path.join(sketch_root,
+                                           '/'.join(img_path.split('/')[-3:]))
+                if os.path.isfile(img_path)  and os.path.isfile(sketch_path):
                     ref_N_frame_img.append(cv2.resize(cv2.imread(img_path),(img_size,img_size)))
-                    #ref_N_frame_sketch.append(cv2.imread(sketch_path))
+                    ref_N_frame_sketch.append(cv2.imread(sketch_path))
                 else:
                     break
             if len(ref_N_frame_img) != ref_N:  # ref_N (H,W,3)
@@ -353,14 +215,14 @@ class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
 
             # 3. get T audio mel
             try:
-                audio_mel = np.load(join(audio_root,vid_img_name, "audio.npy"))
+                audio_mel = np.load(join(audio_root,vid_name, "audio.npy"))
             except Exception as e:
                 continue
-            frame_idx=T_idxs[2] # 5 帧里面中间那帧
+            frame_idx=T_idxs[2]
             mel_start_frame_idx = frame_idx - 2  ###around the frame idx
             if mel_start_frame_idx < 0:
                 continue
-            start_idx = int(80. * (mel_start_frame_idx / float(fps))) # 80*(5/25)=16 取5帧，mel_step=16
+            start_idx = int(80. * (mel_start_frame_idx / float(fps)))
             m = audio_mel[start_idx: start_idx + mel_step_size, :]  # get five frame around
             if m.shape[0] != mel_step_size:  # in the end of vid
                 continue
@@ -369,9 +231,6 @@ class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
 
             return T_frame_img[2].unsqueeze(0),T_frame_sketch,ref_N_frame_img,ref_N_frame_sketch,T_mels
             #      (1,3,H,W)   (T,3,H,W)       (ref_N,3,H,W)   (ref_N,3,H,W)    (1,1,hv,wv)
-
-
-
 
 def _load(checkpoint_path):
     if device == 'cuda':
@@ -395,7 +254,49 @@ def load_model(model, path):
     model = model.to(device)
     return model.eval()
 
+# def load_checkpoint(path, model, optimizer, reset_optimizer=False, overwrite_global_states=True):
+#     global global_step
+#     global global_epoch
+#     print("Load checkpoint from: {}".format(path))
+#     checkpoint = torch.load(path)
+#     s = checkpoint["state_dict"]
+#     new_s = {}
+#     for k, v in s.items():
+#         new_s[k.replace('module.', '',1)] = v  #
+#     # for k, v in s.items():
+#     #     new_s['module.'+k] = v
+#     model.load_state_dict(new_s)
+#     if not reset_optimizer:
+#         optimizer_state = checkpoint["optimizer"]
+#         if optimizer_state is not None:
+#             print("Load optimizer state from {}".format(path))
+#             optimizer.load_state_dict(checkpoint["optimizer"])
+#     if overwrite_global_states:
+#         global_step = checkpoint["global_step"]
+#         global_epoch = checkpoint["global_epoch"]
+#     return model
+# def save_checkpoint(model, optimizer, step, checkpoint_dir, epoch, prefix=''):
+#     checkpoint_path = join(
+#         checkpoint_dir, "{}_epoch_{}_checkpoint_step{:09d}.pth".format(prefix, epoch, global_step))
+#     if isfile(checkpoint_path):
+#         os.remove(checkpoint_path)
+#     optimizer_state = optimizer.state_dict() if save_optimizer_state else None
+#     torch.save({
+#         "state_dict": model.state_dict(),
+#         "optimizer": optimizer_state,
+#         "global_step": step,
+#         "global_epoch": epoch,
+#     }, checkpoint_path)
+#     print("Saved checkpoint:", checkpoint_path)
 
+
+# n_layers_D = 3
+# num_D = 2
+# disc = define_D(input_nc=3, ndf=64, n_layers_D=n_layers_D, norm='instance', use_sigmoid=False, num_D=num_D,
+#                     getIntermFeat=True)
+# criterionGAN = GANLoss(use_lsgan=True, tensor=torch.cuda.FloatTensor)
+# criterion_L1 = nn.L1Loss()
+#evaluate index
 fid_metric = FID()
 feature_extractor = InceptionV3() #.cuda()
 def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96) cuda
@@ -459,7 +360,7 @@ def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96)
 #         for t in range(len(c)):
 #             cv2.imwrite('{}/{}_{}.png'.format(folder, batch_idx, t), c[t])
 
-def evaluate_ren(model, val_data_loader):
+def evaluate(model, val_data_loader):
     # global global_epoch, global_step
     eval_epochs = 1
     print('Evaluating model for {} epochs'.format(eval_epochs))
@@ -499,17 +400,9 @@ def evaluate_ren(model, val_data_loader):
     # writer.add_scalar('eval_warp_loss', eval_warp_loss / count, global_step)
     # writer.add_scalar('eval_gen_loss', eval_gen_loss / count, global_step)
     # print('eval_warp_loss :', eval_warp_loss / count,'eval_gen_loss', eval_gen_loss / count,'global_step:', global_step)
-
 if __name__ == '__main__':
     # if not os.path.exists(checkpoint_dir):
     #     os.makedirs(checkpoint_dir, exist_ok=True)
-    if os.path.isfile(input_video_path) and input_video_path.split('.')[1] in ['jpg', 'png', 'jpeg']:
-    args.static = True
-    # outfile_path = os.path.join(output_dir,
-    #                     '{}_N_{}_Nl_{}.mp4'.format(input_video_path.split('/')[-1][:-4] + 'result', ref_img_N, Nl))
-    if os.path.isfile(input_video_path) and input_video_path.split('.')[1] in ['jpg', 'png', 'jpeg']:
-        args.static = True
-
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # create a model and optimizer
     # model = Renderer().cuda()
@@ -534,9 +427,9 @@ if __name__ == '__main__':
     # create dataset
     # train_dataset = Dataset('train')
     val_dataset = Dataset('test')
-    # val_data_loader_lmk = torch.utils.data.DataLoader(
-    #     val_dataset,
-    #     batch_size=batch_size_val,
+    # train_data_loader = torch.utils.data.DataLoader(
+    #     train_dataset,
+    #     batch_size=batch_size,
     #     shuffle=True,
     #     drop_last=True,
     #     num_workers=num_workers,
@@ -552,9 +445,71 @@ if __name__ == '__main__':
     )
 
     with torch.no_grad():
-        # evaluate_lmk(landmark_generator_model, val_data_loader) # 生成下半部分landmark的loss
-        evaluate_ren(renderer_model, val_data_loader)
-        
+        evaluate(renderer_model, val_data_loader)
 
 print("end")
 
+    # while global_epoch < 9999999999:
+        # prog_bar = tqdm(enumerate(train_data_loader), total=len(train_data_loader))
+        # running_warp_loss,running_gen_loss= 0.,0.
+        # for step, (T_frame_img, T_frame_sketch, ref_N_frame_img, ref_N_frame_sketch, T_mels) in prog_bar:
+            #    (B,T,3,H,W)   (B,T,3,H,W)       (B,ref_N,3,H,W)   (B,ref_N,3,H,W) B,T,1,h,w
+            # model.train()
+            # disc.train()
+            # optimizer.zero_grad()
+            # disc_optimizer.zero_grad()
+            # T_frame_img,T_frame_sketch,ref_N_frame_img,ref_N_frame_sketch,T_mels =\
+            #     T_frame_img.cuda(non_blocking=True),T_frame_sketch.cuda(non_blocking=True),\
+            #     ref_N_frame_img.cuda(non_blocking=True),ref_N_frame_sketch.cuda(non_blocking=True),T_mels.cuda(non_blocking=True)
+
+            # with torch.no_grad():
+            #     # ori_face_img, target_sketches, ref_imgs, ref_img_sketches, T_mels[:, 2].unsqueeze(0))
+            #     generated_img, _, _, _ = renderer_model(T_frame_img, T_frame_sketch, ref_N_frame_img, ref_N_frame_sketch, T_mels)# (B*T,3,H,W)
+
+            # perceptual_warp_loss=perceptual_warp_loss.sum()
+            # perceptual_gen_loss=perceptual_gen_loss.sum()
+
+            # gt = torch.cat([T_frame_img[i] for i in range(T_frame_img.size(0))], dim=0)  # (B*T,3,H,W)
+            # # discriminator
+            # pred_fake = disc.forward(generated_img.detach()) # Icey 计算了生成图像经过判别器 disc 的前向传播得到的预测结果,detach()确保在计算假设结果的损失时不会影响生成器的梯度更新
+            # loss_D_fake = criterionGAN(pred_fake, False)     # Icey 计算假设结果的判别器损失
+            # # Real Detection and Loss
+            # pred_real = disc.forward(gt.clone().detach())    # Icey 计算真实图像 gt 经过判别器的前向传播得到的预测结果
+            # loss_D_real = criterionGAN(pred_real, True)      # Icey 计算真实图像的判别器损失
+            # loss_D = (loss_D_fake + loss_D_real).mean() * 0.5 # Icey 总的判别器损失，即生成图像和真实图像的判别器损失的平均值的一半
+            #
+            # # GAN loss
+            # pred_fake = disc.forward(generated_img)
+            # loss_G_GAN = criterionGAN(pred_fake, True).mean()
+            # # GAN feature matching loss
+            # loss_G_GAN_Feat = 0                   # Icey 初始化特征匹配损失为零
+            # feat_weights = 4.0 / (n_layers_D + 1) # Icey 计算特征匹配损失的权重
+            # D_weights = 1.0 / num_D               # Icey  计算判别器的权重
+            # for i in range(num_D):
+            #     for j in range(len(pred_fake[i]) - 1):
+            #         loss_G_GAN_Feat += D_weights * feat_weights * \
+            #                            criterionFeat(pred_fake[i][j], pred_real[i][j].detach()).mean() * 2.5
+            # if global_epoch>25:
+            #     loss = 2.5*perceptual_warp_loss+4*perceptual_gen_loss+0.1*2.5*loss_G_GAN+ loss_G_GAN_Feat
+            # else:
+            #     loss = 2.5 * perceptual_warp_loss+0*perceptual_gen_loss
+            # loss.backward()  # Icey 计算当前损失对模型参数的梯度
+            # optimizer.step() # Icey 根据损失函数的梯度更新模型参数
+            # update discriminator weights:
+            # loss_D.backward()
+            # disc_optimizer.step()
+            ##log#
+            # running_warp_loss += perceptual_warp_loss.item()
+            # running_gen_loss+= perceptual_gen_loss.item()
+            # # if global_step % checkpoint_interval == 0:
+            # #     save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch, prefix=Project_name)
+            # if  global_step % evaluate_interval == 0 or global_step == 100 or global_step == 500:
+                # with torch.no_grad():
+                #     evaluate(model, val_data_loader)
+            # prog_bar.set_description('epoch: %d step: %d running_warp_loss: %.4f running_gen_loss: %.4f' \
+            #                          % (global_epoch,global_step, running_warp_loss / (step + 1),running_gen_loss / (step + 1)))
+            # writer.add_scalar('running_warp_loss', running_warp_loss / (step + 1), global_step)
+            # writer.add_scalar('running_gen_loss', running_gen_loss / (step + 1), global_step)
+        #     global_step += 1
+        # global_epoch += 1
+# print("end")

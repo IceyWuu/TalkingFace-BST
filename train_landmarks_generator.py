@@ -30,7 +30,7 @@ batch_size =128  # 512
 batch_size_val =128  #512
 evaluate_interval = 5000  #
 checkpoint_interval = evaluate_interval
-mel_step_size = 16
+mel_step_size = 16 # 16000/200=80，fps=25，T=5帧，一秒mel有80个（采样点16khz）。80/5=16，mel的每16个采样点可覆盖5帧。80/25=3.2，mel的每3.2个采样点可覆盖1帧
 fps = 25
 lr = 1e-4 # Icey learning rate
 global_step, global_epoch = 0, 0
@@ -79,7 +79,7 @@ class Dataset(object):
         return vid_name_list
 
     def __init__(self, split):
-        min_len = 25  #filter videos that is too short
+        min_len = 25  #filter videos that is too short #15帧参考，5帧T
         vid_name_lists = self.get_vidname_list(split)
         self.all_video_names = []
         print("init dataset,filtering very short videos.....")
@@ -88,7 +88,7 @@ class Dataset(object):
             # print(landmark_root,vid_name)
             vid_len=len(pkl_paths)
             if vid_len >= min_len:
-                self.all_video_names.append((vid_name, vid_len))
+                self.all_video_names.append((vid_name, vid_len)) # 是已经抽去了不能识别脸的帧，重新拼接的idx
         print("complete,with available vids: ", len(self.all_video_names), '\n')
 
     def __len__(self):
@@ -96,17 +96,17 @@ class Dataset(object):
 
     def __getitem__(self, idx):
         while 1:
-            vid_idx = random.randint(0, len(self.all_video_names) - 1)
-            vid_name = self.all_video_names[vid_idx][0]
+            vid_idx = random.randint(0, len(self.all_video_names) - 1) # 随机抽取一个视频
+            vid_name = self.all_video_names[vid_idx][0] # all_video_names = [(vid_name, vid_len), ...]
             vid_len=self.all_video_names[vid_idx][1]
             # 00.randomly select a window of T video frames
-            random_start_idx = random.randint(2, vid_len - T - 2)
-            T_idxs = list(range(random_start_idx, random_start_idx + T))
+            random_start_idx = random.randint(2, vid_len - T - 2) # 随机抽取开始帧
+            T_idxs = list(range(random_start_idx, random_start_idx + T)) # 随机抽取 T=5 帧
 
             # 01. get reference landmarks
-            all_list=[i for i in range(vid_len) if i not in T_idxs]
+            all_list=[i for i in range(vid_len) if i not in T_idxs] # 除抽取的 T=5 帧 之外的帧中，抽取 Nl = 15 帧
             Nl_idxs = random.sample(all_list, Nl)
-            Nl_landmarks_paths = [os.path.join(landmark_root, vid_name, str(idx) + '.npy') for idx in Nl_idxs]
+            Nl_landmarks_paths = [os.path.join(landmark_root, vid_name, str(idx) + '.npy') for idx in Nl_idxs] # 获取 Nl = 15 帧的landmarks
 
             Nl_pose_landmarks,Nl_content_landmarks= [],[]
             for frame_landmark_path in Nl_landmarks_paths:
@@ -120,7 +120,7 @@ class Dataset(object):
             Nl_pose = torch.zeros((Nl, 2, 74))  # 74 landmark
             Nl_content = torch.zeros((Nl, 2, 57))  # 57 landmark
             for idx in range(Nl):
-                Nl_pose_landmarks[idx] = sorted(Nl_pose_landmarks[idx],
+                Nl_pose_landmarks[idx] = sorted(Nl_pose_landmarks[idx], # 将 Nl_pose_landmarks[idx] 中的关键点按照在原始序列中的顺序重新排列
                                                key=lambda land_tuple: ori_sequence_idx.index(land_tuple[0]))
                 Nl_content_landmarks[idx] = sorted(Nl_content_landmarks[idx],
                                                   key=lambda land_tuple: ori_sequence_idx.index(land_tuple[0]))
@@ -134,6 +134,7 @@ class Dataset(object):
                     [Nl_content_landmarks[idx][i][1] for i in range(len(Nl_content_landmarks[idx]))])  # x
                 Nl_content[idx, 1, :] = torch.FloatTensor(
                     [Nl_content_landmarks[idx][i][2] for i in range(len(Nl_content_landmarks[idx]))])  # y
+                
             # 02. get T pose landmark and content landmark
             T_ladnmark_paths = [os.path.join(landmark_root, vid_name, str(idx) + '.npy') for idx in T_idxs]
             T_pose_landmarks,T_content_landmarks=[],[]
@@ -158,22 +159,25 @@ class Dataset(object):
                 T_content[idx, 1, :] = torch.FloatTensor([T_content_landmarks[idx][i][2] for i in range(len(T_content_landmarks[idx]))])  # y
             # 03. get T audio
             try:
-                audio_mel = np.load(join(args.pre_audio_root,vid_name, "audio.npy"))
+                audio_mel = np.load(join(args.pre_audio_root,vid_name, "audio.npy")) 
+                # .npy 横轴代表时间步（hop_size），纵轴代表特征（频率 bin）采样率16000
             except Exception as e:
-                continue
+                continue # for each video frame, we extract out the corresponding audio interval and process it to Mel-spectrogram with size of 16 × 80, i.e., h = 16 and w = 80.
             T_mels = []
             for frame_idx in T_idxs:
                 mel_start_frame_idx = frame_idx - 2  ###around the frame
                 if mel_start_frame_idx < 0:
                     break
+                # Icey mel_step_size=16，16个mel采样数可覆盖5帧
+                # fps=25, sample_rate=16000 hz, hop_size = 200. (sample_rate/hop_size * time)
                 start_idx = int(80. * (mel_start_frame_idx / float(fps)))
                 m = audio_mel[start_idx: start_idx + mel_step_size, :]  # get five frames around
                 if m.shape[0] != mel_step_size:  # in the end of vid
                     break
-                T_mels.append(m.T)  # transpose
+                T_mels.append(m.T)  # transpose # 转回梅尔频谱的样子，每一行代表一个特征（频率 bin），每一列代表一个时间步
             if len(T_mels) != T:
                 continue
-            T_mels = np.asarray(T_mels)  # (T,hv,wv)
+            T_mels = np.asarray(T_mels)  # (T,hv,wv) # Icey（5, 80, 16）
             T_mels = torch.FloatTensor(T_mels).unsqueeze(1)  # (T,1,hv,wv)
 
             #  return value
@@ -266,7 +270,7 @@ if __name__ == '__main__': # Icey 约 10min 1个epoch，约2min 1个epoch
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir, exist_ok=True)
     device = torch.device("cuda")
-    # create a model and optimizer
+    # create a model and optimizer # 5 512   4       4       1024          0.1
     model = Landmark_transformer(T,d_model,nlayers,nhead,dim_feedforward,dropout)
     if finetune_path is not None:  ###fine tune
         model_dict = model.state_dict() # Icey 获取当前模型的状态字典，state_dict就是不带模型结构的模型参数

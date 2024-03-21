@@ -23,7 +23,7 @@ class HParams:
 
 # Default hyperparameters
 hp = HParams(
-    num_mels=80,  # Number of mel-spectrogram channels and local conditioning dimensionality
+    num_mels=80,  # Number of mel-spectrogram channels and local conditioning dimensionality # 80 个梅尔频度
     #  network
     rescale=True,  # Whether to rescale audio prior to preprocessing
     rescaling_max=0.9,  # Rescaling value
@@ -33,10 +33,11 @@ hp = HParams(
     # Does not work if n_ffit is not multiple of hop_size!!
     use_lws=False,
 
-    n_fft=800,  # Extra window size is filled with 0 paddings to match this parameter
-    hop_size=200,  # For 16000Hz, 200 = 12.5 ms (0.0125 * sample_rate)
-    win_size=800,  # For 16000Hz, 800 = 50 ms (If None, win_size = n_fft) (0.05 * sample_rate)
+    n_fft=800,  # Extra window size is filled with 0 paddings to match this parameter #  FFT点数
+    hop_size=200,  # For 16000Hz, 200 = 12.5 ms (0.0125 * sample_rate) # 窗体移动距离，每移动一下hop_size，窗口包含的范围作为一个新的帧进行 fft
+    win_size=800,  # For 16000Hz, 800 = 50 ms (If None, win_size = n_fft) (0.05 * sample_rate)  # 窗口长度
     sample_rate=16000,  # 16000Hz (corresponding to librispeech) (sox --i <filename>)
+    # Icey sample_rate/hop_size=本次采样16khz分成的总帧数
 
     frame_shift_ms=None,  # Can replace hop_size parameter. (Recommended: 12.5)
 
@@ -193,9 +194,14 @@ def _linear_to_mel(spectogram):
 
 
 def _build_mel_basis():
-    assert hp.fmax <= hp.sample_rate // 2
+    assert hp.fmax <= hp.sample_rate // 2 # 用断言确保 hp.fmax 小于等于采样率的一半，以避免超出 Nyquist 频率范围
     return librosa.filters.mel(hp.sample_rate, hp.n_fft, n_mels=hp.num_mels,
                                fmin=hp.fmin, fmax=hp.fmax)
+# hp.sample_rate: 采样率
+# hp.n_fft: FFT 窗口的大小
+# n_mels=hp.num_mels: 梅尔滤波器的数量
+# fmin=hp.fmin: 最低频率
+# fmax=hp.fmax: 最高频率
 
 # Icey 将振幅值转换为分贝(dB)刻度
 def _amp_to_db(x):
