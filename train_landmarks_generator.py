@@ -6,7 +6,7 @@ from glob import glob
 from os.path import join, isfile
 import  random
 from tensorboardX import SummaryWriter
-from models import Landmark_generator as Landmark_transformer
+from models.icey_landmark_generator import Landmark_generator as Landmark_transformer # Icey change Landmark_generator
 import argparse
 parser=argparse.ArgumentParser()
 parser.add_argument('--pre_audio_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio', # Icey default='...../Dataset/lrs2_preprocessed_audio'
