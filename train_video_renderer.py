@@ -9,7 +9,7 @@ import numpy as np
 from glob import glob
 import os, random
 import cv2
-from piq import psnr, ssim, FID # Icey LPIPS 也在piq
+from piq import psnr, ssim, FID
 import face_alignment
 from piq.feature_extractors import InceptionV3
 from models import define_D
@@ -26,13 +26,13 @@ parser.add_argument('--audio_root',default='/home/zhenglab/wuyubing/TalkingFace-
 args=parser.parse_args()
 #other parameters
 num_workers = 20
-Project_name = 'renderer_T1_ref_N3'   #Project_name
+Project_name = 'for_test'   #Project_name
 finetune_path =None
 ref_N = 3
-T = 1 # save_sample_images_gen
+T = 1
 print('Project_name:', Project_name)
-batch_size = 80 # Icey 96       #### batch_size
-batch_size_val = 80 # Icey 96    #### batch_size
+batch_size = 80#96       #### batch_size
+batch_size_val = 5#96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -53,7 +53,7 @@ save_optimizer_state = True
 writer = SummaryWriter('tensorboard_runs/Project_{}'.format(Project_name))
 
 criterionFeat = torch.nn.L1Loss()
-class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
+class Dataset(object):
     def get_vid_name_list(self, split):
         filelist = []
         with open('filelists/{}/{}.txt'.format(filelist_name, split)) as f:
@@ -196,6 +196,7 @@ fid_metric = FID()
 feature_extractor = InceptionV3() #.cuda()
 def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96) cuda
     global global_step
+    #gt, fake_image torch.Size([5, 3, 128, 128])
     psnr_values = []
     ssim_values = []
     #############PSNR###########

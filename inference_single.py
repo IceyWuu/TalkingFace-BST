@@ -52,7 +52,7 @@ ori_sequence_idx = [162, 127, 234, 93, 132, 58, 172, 136, 150, 149, 176, 148, 15
                     48, 115, 220, 45, 4, 275, 440, 344, 278,  #
                     33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7,  #
                     362, 398, 384, 385, 386, 387, 388, 466, 263, 249, 390, 373, 374, 380, 381, 382,  #
-                    61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146,  #
+                    61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146,  # #0，17
                     78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95]
 
 # the following is the connections of landmarks for drawing sketch image
@@ -259,6 +259,8 @@ with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landm
     for frame_idx, full_frame in enumerate(ori_background_frames):
         h, w = full_frame.shape[0], full_frame.shape[1]
         results = face_mesh.process(cv2.cvtColor(full_frame, cv2.COLOR_BGR2RGB)) # Icey 进行特征点提取
+        print("full_frame",type(full_frame))
+        print("results",type(results))
         if not results.multi_face_landmarks:
             raise NotImplementedError  # not detect face
         face_landmarks = results.multi_face_landmarks[0] # Icey 检测到的第一张脸的landmark
@@ -300,6 +302,7 @@ with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landm
     # (3)detect facial landmarks
     for frame_idx, full_frame in enumerate(ori_background_frames):
         h, w = full_frame.shape[0], full_frame.shape[1]
+        print("full_frame",type(full_frame))
         results = face_mesh.process(cv2.cvtColor(full_frame, cv2.COLOR_BGR2RGB))
         if not results.multi_face_landmarks:
             raise ValueError("not detect face in some frame!")  # not detect
@@ -344,7 +347,7 @@ all_content_landmarks=get_smoothened_landmarks(all_content_landmarks,windows_T=1
 dists_sorted = sorted(lip_dists, key=lambda x: x[1])
 lip_dist_idx = np.asarray([idx for idx, dist in dists_sorted])  #the frame idxs sorted by lip openness
 
-Nl_idxs = [lip_dist_idx[int(i)] for i in torch.linspace(0, input_vid_len - 1, steps=Nl)] # Icey 按照上下唇距离，等距取了相应距离的唇部索引
+Nl_idxs = [lip_dist_idx[int(i)] for i in torch.linspace(0, input_vid_len - 1, steps=Nl)] # Icey 按照上下唇距离，生成包含了 Nl 个值的序列
 Nl_pose_landmarks, Nl_content_landmarks = [], []  #Nl_pose + Nl_content=Nl reference landmarks
 for reference_idx in Nl_idxs:
     frame_pose_landmarks = all_pose_landmarks[reference_idx]
@@ -469,7 +472,7 @@ for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len -
     Nl_pose, Nl_content = Nl_pose.cuda(), Nl_content.cuda() # (Nl,2,74)  (Nl,2,57)
     T_mels, T_pose = T_mels.cuda(), T_pose.cuda()
     with torch.no_grad():  # require    (1,T,1,hv,wv)(1,T,2,74)(1,T,2,57)
-        predict_content = landmark_generator_model(T_mels, T_pose, Nl_pose, Nl_content)  # (1*T,2,57) # Icey 在使用Pytorch的时候，不需要调用forward这个函数，只需要在实例化一个对象中传入对应的参数就可以自动调用 forward 函数。
+        predict_content = landmark_generator_model(T_mels, T_pose, Nl_pose, Nl_content)  # (1*T,2,57) 
     T_pose = torch.cat([T_pose[i] for i in range(T_pose.size(0))], dim=0)  # (1*T,2,74)
     T_predict_full_landmarks = torch.cat([T_pose, predict_content], dim=2).cpu().numpy()  # (1*T,2,131) # Icey 预测和参考合成整脸landmark
 

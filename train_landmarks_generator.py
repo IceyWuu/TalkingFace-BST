@@ -22,7 +22,7 @@ nhead=4
 dropout=0.1 # 0.5
 Nl=15
 T = 5
-Project_name = 'landmarkT5_d512_fe1024_lay4_head4'
+Project_name = 'decoder_landmarkT5_d512_fe1024_lay4_head4'
 print('Project_name:', Project_name)
 finetune_path =None
 num_workers = 8
@@ -307,6 +307,7 @@ if __name__ == '__main__': # Icey 约 10min 1个epoch，约2min 1个epoch
         num_workers=num_workers,
         pin_memory=True
     )
+    # 9999999999 1838
     while global_epoch < 9999999999: # Icey (T_mels, T_pose, T_content, Nl_pose, Nl_content) 是从 train_data_loader 中获取的一个 batch 的数据
         prog_bar = tqdm(enumerate(train_data_loader), total=len(train_data_loader)) # Icey 完成一次完整的数据集遍历所需的批次数量
         running_L1_loss,running_velocity_loss=0.,0.
