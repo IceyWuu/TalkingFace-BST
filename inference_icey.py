@@ -233,7 +233,7 @@ psnr_sum = 0.
 ssim_sum = 0.
 fid_sum = 0.
 filelist = []
-with open('filelists/{}/{}.txt'.format(filelist_name, 'test')) as f: # Icey filelists/lrs2/test.txt
+with open('filelists/{}/{}.txt'.format(filelist_name, 'test_continue')) as f: # Icey filelists/lrs2/test.txt
     for line in f:
         line = line.strip()
         if ' ' in line: line = line.split()[0] # Icey 6330311066473698535/00011
@@ -284,6 +284,7 @@ for step, input_video_path in enumerate(absolute_video_path):
                 min_detection_confidence=0.5) as face_mesh: # Icey 人脸的静态 3D 模型，468个点（id, x, y, z），但只用了131个，57+74
                 tmp_lmk = face_mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)) # Icey 进行特征点提取
                 if not tmp_lmk.multi_face_landmarks:
+                    raise ValueError("not detect face in some frame!")  # not detect
                     continue  # not detect face
                 else:
                     ori_background_frames.append(frame)
@@ -595,21 +596,21 @@ for step, input_video_path in enumerate(absolute_video_path):
 
     # pic_num = 0
     # csim_sum = 0.
-    for idx in range(0, len(ori_face_imgs)):
-        cv2.imwrite(os.path.join('./tmp', 'generate_imgs_crop2' + '.png'), generate_imgs[idx])
-        # print("generate_imgs", generate_imgs[idx].shape)
-        cv2.imwrite(os.path.join('./tmp', 'ori_face_imgs_crop2' + '.png'), ori_face_imgs[idx])
-        print("Get!")
-        psnr_value_tmp, ssim_value_tmp, fid_tmp, csim_tmp = evaluate_test('./tmp/generate_imgs_crop2.png', './tmp/ori_face_imgs_crop2.png')
-        csim_sum = csim_sum + csim_tmp
-        psnr_sum = psnr_sum + psnr_value_tmp
-        ssim_sum = ssim_sum + ssim_value_tmp
-        fid_sum = fid_sum + fid_tmp
+    # for idx in range(0, len(ori_face_imgs)):
+    #     cv2.imwrite(os.path.join('./tmp', 'generate_imgs_crop2' + '.png'), generate_imgs[idx])
+    #     # print("generate_imgs", generate_imgs[idx].shape)
+    #     cv2.imwrite(os.path.join('./tmp', 'ori_face_imgs_crop2' + '.png'), ori_face_imgs[idx])
+    #     print("Get!")
+    #     psnr_value_tmp, ssim_value_tmp, fid_tmp, csim_tmp = evaluate_test('./tmp/generate_imgs_crop2.png', './tmp/ori_face_imgs_crop2.png')
+    #     csim_sum = csim_sum + csim_tmp
+    #     psnr_sum = psnr_sum + psnr_value_tmp
+    #     ssim_sum = ssim_sum + ssim_value_tmp
+    #     fid_sum = fid_sum + fid_tmp
 
-        pic_num = pic_num + 1
+    #     pic_num = pic_num + 1
 
-        print("csim", csim_sum/pic_num)
-        print("psnr", psnr_sum/pic_num)
-        print("ssim", ssim_sum/pic_num)
-        print("fid", fid_sum/pic_num)
+    #     print("csim", csim_sum/pic_num)
+    #     print("psnr", psnr_sum/pic_num)
+    #     print("ssim", ssim_sum/pic_num)
+    #     print("fid", fid_sum/pic_num)
 

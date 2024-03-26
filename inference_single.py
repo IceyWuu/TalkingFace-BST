@@ -256,16 +256,14 @@ all_pose_landmarks, all_content_landmarks = [], []  #content landmarks include l
 with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landmarks=True,
                            min_detection_confidence=0.5) as face_mesh: # Icey 人脸的静态 3D 模型，468个点（id, x, y, z），但只用了131个，57+74
     # (1) get bounding boxes and lip dist
-    for frame_idx, full_frame in enumerate(ori_background_frames):
+    for frame_idx, full_frame in enumerate(ori_background_frames): # full_frame  (256, 256, 3) numpy_array
         h, w = full_frame.shape[0], full_frame.shape[1]
         results = face_mesh.process(cv2.cvtColor(full_frame, cv2.COLOR_BGR2RGB)) # Icey 进行特征点提取
-        print("full_frame",type(full_frame))
-        print("results",type(results))
         if not results.multi_face_landmarks:
             raise NotImplementedError  # not detect face
         face_landmarks = results.multi_face_landmarks[0] # Icey 检测到的第一张脸的landmark
 
-        ## calculate the lip dist
+        ## calculate the lip dist # 对经过归一化的坐标求距离，并再次归一化
         dx = face_landmarks.landmark[lip_index[0]].x - face_landmarks.landmark[lip_index[1]].x
         dy = face_landmarks.landmark[lip_index[0]].y - face_landmarks.landmark[lip_index[1]].y
         dist = np.linalg.norm((dx, dy)) # Icey linear线性 algebra代数；norm求范数，2范数是欧氏距离
@@ -273,7 +271,7 @@ with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landm
 
         # (1)get the marginal landmarks to crop face
         x_min,x_max,y_min,y_max = 999,-999,999,-999
-        for idx, landmark in enumerate(face_landmarks.landmark):
+        for idx, landmark in enumerate(face_landmarks.landmark): # 对一张图里的所有landmark，找到最大最小
             if idx in all_landmarks_idx:
                 if landmark.x < x_min:
                     x_min = landmark.x
@@ -286,13 +284,13 @@ with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landm
         ##########plus some pixel to the marginal region##########
         #note:the landmarks coordinates returned by mediapipe range 0~1
         plus_pixel = 25
-        x_min = max(x_min - plus_pixel / w, 0)
+        x_min = max(x_min - plus_pixel / w, 0) #landmarks coordinates是经过归一化的
         x_max = min(x_max + plus_pixel / w, 1)
 
         y_min = max(y_min - plus_pixel / h, 0)
         y_max = min(y_max + plus_pixel / h, 1)
         y1, y2, x1, x2 = int(y_min * h), int(y_max * h), int(x_min * w), int(x_max * w)
-        boxes.append([y1, y2, x1, x2])
+        boxes.append([y1, y2, x1, x2]) # 每张图片未经过归一化的可crop坐标
     boxes = np.array(boxes)
 
     # (2)croppd face
@@ -312,18 +310,19 @@ with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landm
 
         pose_landmarks, content_landmarks = [], []
         for idx, landmark in enumerate(face_landmarks.landmark):
-            if idx in pose_landmark_idx:
+            if idx in pose_landmark_idx: # 每一张pose_landmark_idx和content_landmarks里的landmark都从0开始标记
                 pose_landmarks.append((idx, w * landmark.x, h * landmark.y))
             if idx in content_landmark_idx:
                 content_landmarks.append((idx, w * landmark.x, h * landmark.y))
 
         # normalize landmarks to 0~1
+        # （74/57 ,3） 3->(idx,x,y)，idx是分别从0开始的索引
         y_min, y_max, x_min, x_max = face_crop_results[frame_idx][1]  #bounding boxes
         pose_landmarks = [ \
             [idx, (x - x_min) / (x_max - x_min), (y - y_min) / (y_max - y_min)] for idx, x, y in pose_landmarks]
         content_landmarks = [ \
             [idx, (x - x_min) / (x_max - x_min), (y - y_min) / (y_max - y_min)] for idx, x, y in content_landmarks]
-        all_pose_landmarks.append(pose_landmarks)
+        all_pose_landmarks.append(pose_landmarks) # 经过归一化的landmark （N_all,74/57 ,3)
         all_content_landmarks.append(content_landmarks)
 
 # smooth landmarks
@@ -339,6 +338,7 @@ def get_smoothened_landmarks(all_landmarks, windows_T=1):
             all_landmarks[i][j][2] = np.mean([frame_landmarks[j][2] for frame_landmarks in window])  # y
     return all_landmarks
 
+# 经过归一化的landmark，再smooth
 all_pose_landmarks = get_smoothened_landmarks(all_pose_landmarks, windows_T=1)
 all_content_landmarks=get_smoothened_landmarks(all_content_landmarks,windows_T=1)
 
@@ -350,21 +350,22 @@ lip_dist_idx = np.asarray([idx for idx, dist in dists_sorted])  #the frame idxs 
 Nl_idxs = [lip_dist_idx[int(i)] for i in torch.linspace(0, input_vid_len - 1, steps=Nl)] # Icey 按照上下唇距离，生成包含了 Nl 个值的序列
 Nl_pose_landmarks, Nl_content_landmarks = [], []  #Nl_pose + Nl_content=Nl reference landmarks
 for reference_idx in Nl_idxs:
-    frame_pose_landmarks = all_pose_landmarks[reference_idx]
+    frame_pose_landmarks = all_pose_landmarks[reference_idx] 
     frame_content_landmarks = all_content_landmarks[reference_idx]
-    Nl_pose_landmarks.append(frame_pose_landmarks)
+    Nl_pose_landmarks.append(frame_pose_landmarks) #（Nl,74/57 ,3)
     Nl_content_landmarks.append(frame_content_landmarks)
 
 Nl_pose = torch.zeros((Nl, 2, 74))  # 74 landmark
 Nl_content = torch.zeros((Nl, 2, 57))  # 57 landmark
 for idx in range(Nl):
     #arrange the landmark in a certain order, since the landmark index returned by mediapipe is is chaotic
+    # 每张图片的landmark都分别排一下序，按照ori_sequence_idx
     Nl_pose_landmarks[idx] = sorted(Nl_pose_landmarks[idx],
                                     key=lambda land_tuple: ori_sequence_idx.index(land_tuple[0]))
     Nl_content_landmarks[idx] = sorted(Nl_content_landmarks[idx],
                                        key=lambda land_tuple: ori_sequence_idx.index(land_tuple[0]))
-
-    Nl_pose[idx, 0, :] = torch.FloatTensor(
+    # 弄成 (Nl, 2, 57) 的形式
+    Nl_pose[idx, 0, :] = torch.FloatTensor( # [idx][i][0] 是pose或者content原来分别从0开始的下标
         [Nl_pose_landmarks[idx][i][1] for i in range(len(Nl_pose_landmarks[idx]))])  # x
     Nl_pose[idx, 1, :] = torch.FloatTensor(
         [Nl_pose_landmarks[idx][i][2] for i in range(len(Nl_pose_landmarks[idx]))])  # y
@@ -375,7 +376,7 @@ for idx in range(Nl):
 Nl_content = Nl_content.unsqueeze(0)  # (1,Nl, 2, 57)
 Nl_pose = Nl_pose.unsqueeze(0)  # (1,Nl,2,74)
 
-##select reference images and draw sketches for rendering according to lip openness## # Icey 两个阶段的参考不是同一批参考图像
+##select  referenceimages and draw sketches for rendering according to lip openness## # Icey 两个阶段的参考不是同一批参考图像
 ref_img_idx = [int(lip_dist_idx[int(i)]) for i in torch.linspace(0, input_vid_len - 1, steps=ref_img_N)]
 ref_imgs = [face_crop_results[idx][0] for idx in ref_img_idx]
 ## (N,H,W,3)
@@ -436,6 +437,7 @@ input_frame_sequence = input_frame_sequence + list(reversed(input_frame_sequence
 input_frame_sequence=input_frame_sequence*((num_of_repeat+1)//2) # input_frame_sequence * 2 表示序列重复两次
 
 # Icey batch_idx, batch_start_idx:在每次迭代中，batch_idx将保存当前批处理的索引，batch_start_idx将保存当前批处理的起始索引。
+# batch是mel_batch
 for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len - 2, 1)), # 1 个chunk是5帧，16个mel
                                        total=len(range(0, input_mel_chunks_len - 2, 1))):
     T_input_frame, T_ori_face_coordinates = [], []
@@ -445,7 +447,7 @@ for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len -
     # (1) for each batch of T frame, generate corresponding landmarks using landmark generator
     for mel_chunk_idx in range(batch_start_idx, batch_start_idx + T):  # for each T frame
         # 1 input audio
-        T_mel_batch.append(mel_chunks[max(0, mel_chunk_idx - 2)])
+        T_mel_batch.append(mel_chunks[max(0, mel_chunk_idx - 2)]) # 一共T个chunk，每个chunk可覆盖5张要生成的图
 
         # 2.input face
         input_frame_idx = int(input_frame_sequence[mel_chunk_idx])
