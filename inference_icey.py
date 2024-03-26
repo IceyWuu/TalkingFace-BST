@@ -233,7 +233,7 @@ psnr_sum = 0.
 ssim_sum = 0.
 fid_sum = 0.
 filelist = []
-with open('filelists/{}/{}.txt'.format(filelist_name, 'test_continue')) as f: # Icey filelists/lrs2/test.txt
+with open('filelists/{}/{}.txt'.format(filelist_name, 'test_del_not_detect')) as f: # Icey filelists/lrs2/test.txt
     for line in f:
         line = line.strip()
         if ' ' in line: line = line.split()[0] # Icey 6330311066473698535/00011

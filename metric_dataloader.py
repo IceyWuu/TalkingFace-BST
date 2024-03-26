@@ -15,14 +15,20 @@ from piq.feature_extractors import InceptionV3
 # from models import define_D
 # from loss import GANLoss
 from models import Renderer 
-from models.landmark_generator import Landmark_generator as Landmark_transformer 
-# from models.icey_landmark_generator import Landmark_generator as Landmark_transformer 
+# from models.landmark_generator import Landmark_generator as Landmark_transformer 
+from models.icey_landmark_generator import Landmark_generator as Landmark_transformer 
 import mediapipe as mp
 import subprocess
 from draw_landmark import draw_landmarks
 from src.arcface_torch.backbones import get_model
 import argparse
 parser=argparse.ArgumentParser()
+parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
+                    default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/decoder_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
+
+# parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
+#                     default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
+
 parser.add_argument('--sketch_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
                     help='root path for sketches') # Icey',required=True'
 parser.add_argument('--face_img_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
@@ -32,19 +38,15 @@ parser.add_argument('--audio_root',default='/home/zhenglab/wuyubing/TalkingFace-
 parser.add_argument('--landmarks_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
                     help='root path for preprocessed  landmarks')
 #parser.add_argument('--landmark_gen_checkpoint_path', type=str, default='./test/checkpoints/landmarkgenerator_checkpoint.pth')
-# parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
-#                     default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/decoder_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
-parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
-                    default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
 parser.add_argument('--renderer_checkpoint_path', type=str, default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
 # parser.add_argument('--static', type=bool, help='whether only use  the first frame for inference', default=False)
 # parser.add_argument("--data_root", type=str,help="Root folder of the LRS2 dataset", default='/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main')
-# parser.add_argument('--output_dir', type=str, default='./test_result')
+parser.add_argument('--output_dir', type=str, default='./test_result/batch_video')
 args=parser.parse_args()
 
-# temp_dir = 'tempfile_of_{}'.format(output_dir.split('/')[-1])
+temp_dir = 'tempfile_of_{}'.format(args.output_dir.split('/')[-1])
 # os.makedirs(output_dir, exist_ok=True)
-# os.makedirs(temp_dir, exist_ok=True)
+os.makedirs(temp_dir, exist_ok=True)
 # data_root = args.data_root
 landmark_root=args.landmarks_root
 # add checkpoints
@@ -62,7 +64,7 @@ ref_N = 25 # 3 # Icey 参考图片，渲染部分
 T = 5 # 1 # Icey 推理时每个batch取的帧数
 print('Project_name:', Project_name)
 # batch_size = 80 # Icey 96       #### batch_size
-batch_size_val = 80 # 80 # Icey 96    #### batch_size
+batch_size_val = 30 # 80 # Icey 96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -385,6 +387,41 @@ def load_model(model, path):
     model = model.to(device)
     return model.eval()
 
+# T_predit_sketches torch.Size([80, 1, 3, 128, 128])
+def save_sample_images_gen(T_frame_sketch, generated_img, gt, checkpoint_dir):
+    #                        (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
+    # ref_N_frame_img = ref_N_frame_img.unsqueeze(1).expand(-1, T, -1, -1, -1, -1)  # (B,T,ref_N,3,H,W)
+    # ref_N_frame_img = (ref_N_frame_img.cpu().numpy().transpose(0, 1, 2, 4, 5, 3) * 255.).astype(np.uint8)  # ref: (B,T,ref_N,H,W,3)
+
+    T_each_batch = 1 # 此处会把 generated_img, gt的 B*T 分离，但render阶段T张只会生成 1 帧，故此处 T 要写为1
+
+    fake_image = torch.stack(torch.split(generated_img, T_each_batch, dim=0), dim=0)  #(B,T,3,H,W)
+    fake_image = (fake_image.detach().cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+
+    gt = torch.stack(torch.split(gt, T_each_batch, dim=0), dim=0)  # (B,T,3,H,W)
+    gt = (gt.cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+    
+    # T_frame_sketch torch.Size([30, 5, 3, 128, 128])
+    # [:, 2] 索引操作将选择第二个维度上索引为 2 的元素
+    T_frame_sketch=(T_frame_sketch[:,2].unsqueeze(1).cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+    # T_frame_sketch (30, 1, 128, 128, 3)
+
+    folder = join(checkpoint_dir, "samples")
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+    
+    # T_frame_sketch (30, 1, 128, 128, 3)
+    # fake_image (6, 5, 128, 128, 3)
+    # gt (6, 5, 128, 128, 3)
+    print("T_frame_sketch", np.asarray(T_frame_sketch).shape)
+    # print("fake_image",np.asarray(fake_image).shape)
+    # print("gt", np.asarray(gt).shape)
+    
+    collage = np.concatenate((T_frame_sketch, fake_image, gt),
+                             axis=-2)
+    for batch_idx, c in enumerate(collage):   # require (B,T,H,W,3)
+        for t in range(len(c)):
+            cv2.imwrite('{}/{}_{}.png'.format(folder, batch_idx, t), c[t])
 
 @torch.no_grad()
 def csim(gt,fake_image, weight = './src/arcface_torch/checkpoints/ms1mv3_arcface_r100_fp16.pth', name='r100'): # glint360k_r100.pth
@@ -508,10 +545,6 @@ def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96)
             gt_lmk=gt_lmk.multi_face_landmarks[0]
             fake_lmk=fake_lmk.multi_face_landmarks[0]
             lip_values.append(get_norm_lip_dis(gt_lmk, fake_lmk))
-            # print("gt_lmk",gt_lmk)
-            # print("0x", gt_lmk.landmark[lip_index[0]].x, "0y",  gt_lmk.landmark[lip_index[0]].y)
-            # print("0x", gt_lmk.landmark[lip_index[0]].x*128, "0y",  gt_lmk.landmark[lip_index[0]].y*128)
-            # print("1x", gt_lmk.landmark[lip_index[1]].x, "1y",  gt_lmk.landmark[lip_index[1]].y)
             # 0x 0.5473756194114685 0y 0.5914055705070496
             # 0x 70.06407928466797 0y 75.69991302490234
             # 1x 0.5277022123336792 1y 0.7280545234680176
@@ -532,6 +565,7 @@ def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96)
     print("--------For current batch--------")
     print("psnr", np.asarray(psnr_values).mean())
     print("ssim", np.asarray(ssim_values).mean())
+    print("lpips-vgg16", np.asarray(lpips_values).mean())
     print("fid", fid)
     print("lipLMD", np.asarray(lip_values).mean())
     print("csim", np.asarray(csims).mean())
@@ -585,29 +619,28 @@ def evaluate(ren_model, lmk_model, val_data_loader):
                 drawn_sketech = cv2.resize(drawn_sketech, (img_size, img_size))  # (128, 128, 3)
                 T_predit_sketches.append(drawn_sketech)
                 #
-            # T_predit_sketches (B*T, 128, 128, 3)
+
             T_predit_sketches = torch.FloatTensor(normalize_and_transpose(T_predit_sketches).reshape(-1,T,3,128,128))
-            # (B,T, 3, 128, 128) 
-            # print("finish geting predict sketchs")
+            # T_predit_sketches torch.Size([80, 5, 3, 128, 128])
+            # T_predit_sketches (B*T, 128, 128, 3) → (B,T, 3, 128, 128)
 
 
         ## 02 eval for ren_model ##
             ren_model.eval() # T_frame_sketch_from_pre换成 T_predit_sketches!!!!!!!!!!!!!!!!!!！
-            T_frame_img_middle, T_frame_sketch_from_pre, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren = \
-                T_frame_img_middle.cuda(non_blocking=True), T_frame_sketch_from_pre.cuda(non_blocking=True),\
+            T_frame_img_middle, T_predit_sketches, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren = \
+                T_frame_img_middle.cuda(non_blocking=True), T_predit_sketches.cuda(non_blocking=True),\
                 ref_N_frame_img.cuda(non_blocking=True), ref_N_frame_sketch.cuda(non_blocking=True),T_mels_ren.cuda(non_blocking=True)
 
-            generated_img, _, _, perceptual_gen_loss = ren_model(T_frame_img_middle, T_frame_sketch_from_pre, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren)  # (B*T,3,H,W)
-            # print("finish geting predict images")
+            generated_img, _, _, perceptual_gen_loss = ren_model(T_frame_img_middle, T_predit_sketches, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren)  # (B*T,3,H,W)
             # perceptual_warp_loss = perceptual_warp_loss.sum()
             perceptual_gen_loss = perceptual_gen_loss.sum() # “感知损失”(perceptual loss)
-            # (B*T,3,H,W)
+
             gt = torch.cat([T_frame_img_middle[i] for i in range(T_frame_img_middle.size(0))], dim=0)  # (B*T,3,H,W)
 
             # eval_warp_loss += perceptual_warp_loss.item()
             eval_gen_loss += perceptual_gen_loss.item()
             count += 1
-            print("lpips", perceptual_gen_loss.item()/count)
+            print("lpips-vgg19", perceptual_gen_loss.item()/(count * gt.size(0)))
             #########compute evaluation index ###########
             psnr, ssim, fid, liplmd, csim, lpips= compute_generation_quality(gt, generated_img)
             psnrs.append(psnr)
@@ -616,15 +649,16 @@ def evaluate(ren_model, lmk_model, val_data_loader):
             liplmds.append(liplmd)
             csims.append(csim)
             lpipss.append(lpips)
+        # T_predit_sketches torch.Size([80, 1, 3, 128, 128])
+        save_sample_images_gen(T_predit_sketches, generated_img, gt, temp_dir) # Icey set global_step = 404
+        #                         (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
 
-        # save_sample_images_gen(T_frame_sketch_from_pre, ref_N_frame_img, wrapped_ref,generated_img, gt, 404, checkpoint_dir) # Icey set global_step = 404
-        # #                         (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)(B*T,3,H,W)
     psnr, ssim, fid, liplmd, csim, lpips = np.asarray(psnrs).mean(), np.asarray(ssims).mean(), np.asarray(fids).mean(), \
                             np.asarray(liplmds).mean(), np.asarray(csims).mean(), np.asarray(lpipss).mean()
     # print(psnr, ssim, fid, liplmd, csim)
     print("finial result:")
-    print('psnr %.3f ssim %.5f lpips-vgg16 %.5f fid %.3f liplmd %.6f csim %.5f' % (psnr, ssim, lpips, fid, liplmd, csim))
-    print("eval_gen_loss-vgg19", eval_gen_loss / count)
+    print('psnr↑ %.3f ssim↑ %.5f lpips-vgg16↓ %.5f fid↓ %.3f liplmd↓ %.6f csim↑ %.5f' % (psnr, ssim, lpips, fid, liplmd, csim))
+    print("eval_gen_loss-vgg19↓", eval_gen_loss / count)
     writer.add_scalar('psnr', psnr)
     writer.add_scalar('ssim', ssim)
     writer.add_scalar('lpips-vgg16', lpips)
@@ -632,7 +666,7 @@ def evaluate(ren_model, lmk_model, val_data_loader):
     writer.add_scalar('liplmd', liplmd)
     writer.add_scalar('csim', csim)
     # writer.add_scalar('eval_warp_loss', eval_warp_loss / count, global_step)
-    writer.add_scalar('eval_gen_loss-vgg19', eval_gen_loss / count)
+    writer.add_scalar('eval_gen_loss-vgg19↓', eval_gen_loss / (count * gt.size(0)))
     # print('eval_warp_loss :', eval_warp_loss / count,'eval_gen_loss', eval_gen_loss / count,'global_step:', global_step)
 
 if __name__ == '__main__':
@@ -671,7 +705,7 @@ if __name__ == '__main__':
     # disc_optimizer = torch.optim.Adam([p for p in disc.parameters() if p.requires_grad],lr=1e-4, betas=(0.5, 0.999))
     # create dataset
     # train_dataset = Dataset('train')
-    val_dataset = Dataset('test')
+    val_dataset = Dataset('test-100') # test
     val_data_loader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=batch_size_val,

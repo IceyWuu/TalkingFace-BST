@@ -1,15 +1,17 @@
 # Icey
 /checkpoints
 /test/checkpoints/*.pth
-/src/arcface_torch/checkpoints
-/mvlrs_v1_origin
 /mvlrs_v1
-/tempfile_of_test_result
-/test_result
+/mvlrs_v1_origin
 /preprocess_result
+/src/arcface_torch/checkpoints
+/tempfile_of_batch_video
+/tempfile_of_test_result
 /tensorboard_runs
+/test_result
 /tmp
 /.vscode
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
