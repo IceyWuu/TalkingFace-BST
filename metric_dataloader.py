@@ -388,12 +388,14 @@ def load_model(model, path):
     return model.eval()
 
 # T_predit_sketches torch.Size([80, 1, 3, 128, 128])
-def save_sample_images_gen(T_frame_sketch, generated_img, gt, checkpoint_dir):
+def save_sample_images_gen(T_frame_sketch, ref_N_frame_img, generated_img, gt, checkpoint_dir):
     #                        (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
-    # ref_N_frame_img = ref_N_frame_img.unsqueeze(1).expand(-1, T, -1, -1, -1, -1)  # (B,T,ref_N,3,H,W)
-    # ref_N_frame_img = (ref_N_frame_img.cpu().numpy().transpose(0, 1, 2, 4, 5, 3) * 255.).astype(np.uint8)  # ref: (B,T,ref_N,H,W,3)
-
+    
     T_each_batch = 1 # 此处会把 generated_img, gt的 B*T 分离，但render阶段T张只会生成 1 帧，故此处 T 要写为1
+
+    # 生成的 1 张图像所用的参考图像
+    ref_N_frame_img = ref_N_frame_img.unsqueeze(1).expand(-1, T_each_batch, -1, -1, -1, -1)  # (B,T,ref_N,3,H,W)
+    ref_N_frame_img = (ref_N_frame_img.cpu().numpy().transpose(0, 1, 2, 4, 5, 3) * 255.).astype(np.uint8)  # ref: (B,T,ref_N,H,W,3)
 
     fake_image = torch.stack(torch.split(generated_img, T_each_batch, dim=0), dim=0)  #(B,T,3,H,W)
     fake_image = (fake_image.detach().cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
@@ -401,23 +403,19 @@ def save_sample_images_gen(T_frame_sketch, generated_img, gt, checkpoint_dir):
     gt = torch.stack(torch.split(gt, T_each_batch, dim=0), dim=0)  # (B,T,3,H,W)
     gt = (gt.cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
     
-    # T_frame_sketch torch.Size([30, 5, 3, 128, 128])
+    # T_frame_sketch torch.Size([80, 5, 3, 128, 128])
     # [:, 2] 索引操作将选择第二个维度上索引为 2 的元素
     T_frame_sketch=(T_frame_sketch[:,2].unsqueeze(1).cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
-    # T_frame_sketch (30, 1, 128, 128, 3)
+    # T_frame_sketch (80, 1, 128, 128, 3)
 
     folder = join(checkpoint_dir, "samples")
     if not os.path.exists(folder):
         os.mkdir(folder)
     
-    # T_frame_sketch (30, 1, 128, 128, 3)
-    # fake_image (6, 5, 128, 128, 3)
-    # gt (6, 5, 128, 128, 3)
-    print("T_frame_sketch", np.asarray(T_frame_sketch).shape)
-    # print("fake_image",np.asarray(fake_image).shape)
-    # print("gt", np.asarray(gt).shape)
-    
-    collage = np.concatenate((T_frame_sketch, fake_image, gt),
+    # T_frame_sketch (80, 1, 128, 128, 3)
+    # * 将列表推导式生成的多个列表元素展开成了一个整体的列表，输出可以输出ref_N张图片组合起来的长条
+    # T，即此处的 T_each_batch > 1 时，输出的应该是一个图像矩阵
+    collage = np.concatenate((T_frame_sketch, *[ref_N_frame_img[:, :, i] for i in range(ref_N_frame_img.shape[2])], fake_image, gt),
                              axis=-2)
     for batch_idx, c in enumerate(collage):   # require (B,T,H,W,3)
         for t in range(len(c)):
@@ -546,7 +544,7 @@ def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96)
             fake_lmk=fake_lmk.multi_face_landmarks[0]
             lip_values.append(get_norm_lip_dis(gt_lmk, fake_lmk))
             # 0x 0.5473756194114685 0y 0.5914055705070496
-            # 0x 70.06407928466797 0y 75.69991302490234
+            # 0x 70.06407928466797  0y 75.69991302490234
             # 1x 0.5277022123336792 1y 0.7280545234680176
     
     ##############csim#############
@@ -650,7 +648,7 @@ def evaluate(ren_model, lmk_model, val_data_loader):
             csims.append(csim)
             lpipss.append(lpips)
         # T_predit_sketches torch.Size([80, 1, 3, 128, 128])
-        save_sample_images_gen(T_predit_sketches, generated_img, gt, temp_dir) # Icey set global_step = 404
+        save_sample_images_gen(T_predit_sketches, ref_N_frame_img, generated_img, gt, temp_dir) # Icey set global_step = 404
         #                         (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
 
     psnr, ssim, fid, liplmd, csim, lpips = np.asarray(psnrs).mean(), np.asarray(ssims).mean(), np.asarray(fids).mean(), \

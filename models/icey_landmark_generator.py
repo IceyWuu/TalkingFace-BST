@@ -109,19 +109,15 @@ class Fusion_transformer_encoder(nn.Module):
         input_tokens = self.dropout(input_tokens)
         ref_tokens = self.dropout(ref_tokens)
 
-        #(4) input to transformer
+        #(4) input to transformer # 编、解码器都是nlayers=4层
         output = self.transformer_encoder(input_tokens)
         output = self.transformer_decoder(output, ref_tokens) # 编码器输出作为q，ref_tokens作为kv
         return output
-        # output_tokens=self.fusion_transformer(ref_embedding,mel_embedding,pose_embedding)
 
-        # #4.output  landmark
-        # lip_embedding=output_tokens[:,N_l:N_l+T,:] #(B,T,dim)
-        # jaw_embedding=output_tokens[:,N_l+T:,:] #(B,T,dim)
 
 class Landmark_generator(nn.Module): # T=5 d_model=512 nlayers=4 nhead=4 dim_feedforward=1024 dropout=0.1
     def __init__(self,T,d_model,nlayers,nhead,dim_feedforward,dropout=0.1):
-        super(Landmark_generator, self).__init__()
+        super(Landmark_generator, self).__init__() # (hv,wv) (80, 16)
         self.mel_encoder=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱 
             Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
             Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
@@ -141,7 +137,29 @@ class Landmark_generator(nn.Module): # T=5 d_model=512 nlayers=4 nhead=4 dim_fee
             Conv2d(256, 512, kernel_size=3, stride=1, padding=0),
             Conv2d(512, 512, kernel_size=1, stride=1, padding=0,act='Tanh'),
             )
-
+        self.mel_encoder1=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱 
+            Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
+            Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
+            Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
+            )
+        self.mel_encoder2=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱 
+            Conv2d(32, 64, kernel_size=3, stride=(3, 1), padding=1),
+            Conv2d(64, 64, kernel_size=3, stride=1, padding=1, residual=True),
+            Conv2d(64, 64, kernel_size=3, stride=1, padding=1, residual=True),
+            )
+        self.mel_encoder3=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱 
+            Conv2d(64, 128, kernel_size=3, stride=3, padding=1),
+            Conv2d(128, 128, kernel_size=3, stride=1, padding=1, residual=True),
+            Conv2d(128, 128, kernel_size=3, stride=1, padding=1, residual=True),
+            )
+        self.mel_encoder4=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱 
+            Conv2d(128, 256, kernel_size=3, stride=(3, 2), padding=1),
+            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True),
+            )
+        self.mel_encoder5=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱 
+            Conv2d(256, 512, kernel_size=3, stride=1, padding=0),
+            Conv2d(512, 512, kernel_size=1, stride=1, padding=0,act='Tanh'),
+            )
         self.ref_encoder=nn.Sequential( # (B*Nl,2,131) # Icey 参考landmark #B=128, Nl=15
             Conv1d(2, 4, 3, 1, 1),  #131 #一维卷积，输入数据有2个通道，卷积核的数量为4，卷积核的大小为3，步长为1，填充为1。
 
@@ -224,6 +242,18 @@ class Landmark_generator(nn.Module): # T=5 d_model=512 nlayers=4 nhead=4 dim_fee
 
         # 2. get embedding
         mel_embedding=self.mel_encoder(T_mels).squeeze(-1).squeeze(-1)#(B*T,512)
+        # print("T_mels",T_mels.size()) # T_mels torch.Size([320, 1, 80, 16])
+        # mel_embedding1=self.mel_encoder1(T_mels)
+        # print("mel_embedding1",mel_embedding1.size()) # mel_embedding1 torch.Size([320, 32, 80, 16])
+        # mel_embedding2=self.mel_encoder2(mel_embedding1)
+        # print("mel_embedding2",mel_embedding2.size()) # mel_embedding2 torch.Size([320, 64, 27, 16])
+        # mel_embedding3=self.mel_encoder3(mel_embedding2)
+        # print("mel_embedding3",mel_embedding3.size()) # mel_embedding3 torch.Size([320, 128, 9, 6])
+        # mel_embedding4=self.mel_encoder4(mel_embedding3)
+        # print("mel_embedding4",mel_embedding4.size()) # mel_embedding4 torch.Size([320, 256, 3, 3])
+        # mel_embedding5=self.mel_encoder5(mel_embedding4)
+        # print("mel_embedding5",mel_embedding5.size()) # mel_embedding5 torch.Size([320, 512, 1, 1])
+
         pose_embedding=self.pose_encoder(T_pose).squeeze(-1)  # (B*T,512)
         ref_embedding = self.ref_encoder(Nl_ref).squeeze(-1)  # (B*Nl,512)
         #normalization

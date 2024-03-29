@@ -116,24 +116,24 @@ class Fusion_transformer_encoder(nn.Module):
 class Landmark_generator(nn.Module): # T=5 d_model=512 nlayers=4 nhead=4 dim_feedforward=1024 dropout=0.1
     def __init__(self,T,d_model,nlayers,nhead,dim_feedforward,dropout=0.1):
         super(Landmark_generator, self).__init__()
-        self.mel_encoder=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱 
-            Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
+        self.mel_encoder=nn.Sequential(  #  (B*T,1,hv,wv) # Icey 梅尔频谱 [320, 1, 80, 16]
+            Conv2d(1, 32, kernel_size=3, stride=1, padding=1),                 # [320, 32, 80, 16]
             Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
-            Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
+            Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True), # [320, 32, 80, 16]
 
-            Conv2d(32, 64, kernel_size=3, stride=(3, 1), padding=1),
+            Conv2d(32, 64, kernel_size=3, stride=(3, 1), padding=1),           # [320, 64, 27, 16]
             Conv2d(64, 64, kernel_size=3, stride=1, padding=1, residual=True),
-            Conv2d(64, 64, kernel_size=3, stride=1, padding=1, residual=True),
+            Conv2d(64, 64, kernel_size=3, stride=1, padding=1, residual=True), # [320, 64, 27, 16]
 
-            Conv2d(64, 128, kernel_size=3, stride=3, padding=1),
+            Conv2d(64, 128, kernel_size=3, stride=3, padding=1),                 # [320, 128, 9, 6]
             Conv2d(128, 128, kernel_size=3, stride=1, padding=1, residual=True),
-            Conv2d(128, 128, kernel_size=3, stride=1, padding=1, residual=True),
+            Conv2d(128, 128, kernel_size=3, stride=1, padding=1, residual=True), # [320, 128, 9, 6]
 
-            Conv2d(128, 256, kernel_size=3, stride=(3, 2), padding=1),
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True),
+            Conv2d(128, 256, kernel_size=3, stride=(3, 2), padding=1),           # [320, 256, 3, 3]
+            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True), # [320, 256, 3, 3]
 
-            Conv2d(256, 512, kernel_size=3, stride=1, padding=0),
-            Conv2d(512, 512, kernel_size=1, stride=1, padding=0,act='Tanh'),
+            Conv2d(256, 512, kernel_size=3, stride=1, padding=0),            # [320, 512, 1, 1]
+            Conv2d(512, 512, kernel_size=1, stride=1, padding=0,act='Tanh'), # [320, 512, 1, 1]
             )
 
         self.ref_encoder=nn.Sequential( # (B*Nl,2,131) # Icey 参考landmark #B=128, Nl=15

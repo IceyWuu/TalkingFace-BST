@@ -26,13 +26,13 @@ parser.add_argument('--audio_root',default='/home/zhenglab/wuyubing/TalkingFace-
 args=parser.parse_args()
 #other parameters
 num_workers = 20
-Project_name = 'for_test'   #Project_name
+Project_name = 'ori_render_B40'   #Project_name
 finetune_path =None
 ref_N = 3
 T = 1
 print('Project_name:', Project_name)
-batch_size = 80#96       #### batch_size
-batch_size_val = 5#96    #### batch_size
+batch_size = 40#96       #### batch_size
+batch_size_val = 40#96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25

@@ -22,7 +22,7 @@ nhead=4
 dropout=0.1 # 0.5
 Nl=15
 T = 5
-Project_name = 'decoder_landmarkT5_d512_fe1024_lay4_head4'
+Project_name = 'test_landmarkT5_d512_fe1024_lay4_head4'
 print('Project_name:', Project_name)
 finetune_path =None
 num_workers = 8
