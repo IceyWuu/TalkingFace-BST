@@ -71,11 +71,11 @@ class SPADELayer(torch.nn.Module):
                                      padding=padding)
         self.gamma = torch.nn.Conv2d(hidden_size, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
         self.beta = torch.nn.Conv2d(hidden_size, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
-
+# encoder decoder
     def forward(self, input, modulation):
         norm = self.instance_norm(input)
-
-        conv_out = self.conv1(modulation)
+# input b,256,4096 key///听错了？
+        conv_out = self.conv1(modulation) # b256,64,64 -> b,256,4096
 
         gamma = self.gamma(conv_out)
         beta = self.beta(conv_out)
@@ -119,7 +119,7 @@ class Conv2d(nn.Module):
             out += x
         return self.act(out)
 
-def downsample(x, size): # Icey: driving_sketch:(B*T, 3, H, W) size:(64, 64)
+def downsample(x, size): # Icey: driving_sketch:(B, T*3, H, W)
     if len(x.size()) == 5:
         size = (x.size(2), size[0], size[1])
         return torch.nn.functional.interpolate(x, size=size, mode='nearest')
@@ -213,6 +213,7 @@ class DenseFlowNetwork(torch.nn.Module):
         ref_N = ref_N_frame_img.size(1)
 
         driving_sketch=torch.cat([T_driving_sketch[:,i] for i in range(T_driving_sketch.size(1))], dim=1)  #(B, 3*5, H, W)
+
 
         wrapped_h1_sum, wrapped_h2_sum, wrapped_ref_sum=0.,0.,0.
         softmax_denominator=0.
@@ -316,6 +317,7 @@ class TranslationNetwork(torch.nn.Module):
         x = self.conv1_relu(self.conv1_bn(self.conv1(translation_input)))    #B,32,128,128
         x = self.conv2_relu(self.conv2_bn(self.conv2(x)))  #B,256,64,64
 
+        # print("T_mels",T_mels.size())
         audio_feature = self.audio_encoder(T_mels).squeeze(-1).permute(0,2,1) #(B*T,1,512)
 
         # Decoder

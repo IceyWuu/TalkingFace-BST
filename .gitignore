@@ -1,16 +1,18 @@
 # Icey
 /checkpoints
-/test/checkpoints/*.pth
 /mvlrs_v1
 /mvlrs_v1_origin
 /preprocess_result
+./preprocess_result.tar.gz
 /src/arcface_torch/checkpoints
 /tempfile_of_batch_video
 /tempfile_of_test_result
 /tensorboard_runs
+/test/checkpoints/*.pth
 /test_result
 /tmp
 /.vscode
+/preprocess_result.tar.gz
 
 
 # Byte-compiled / optimized / DLL files

@@ -14,25 +14,27 @@ import face_alignment
 from piq.feature_extractors import InceptionV3
 from models import define_D
 from loss import GANLoss
-from models import Renderer  
+# from models.video_renderer import Renderer 
+from models.icey_video_renderer_spade import Renderer  
 import argparse
 parser=argparse.ArgumentParser()
-parser.add_argument('--sketch_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
+parser.add_argument('--sketch_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
                     help='root path for sketches') # Icey',required=True'
-parser.add_argument('--face_img_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
+parser.add_argument('--face_img_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
                     help='root path for face frame images') # Icey',required=True'
-parser.add_argument('--audio_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
+parser.add_argument('--audio_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
                     help='root path for audio mel') # Icey',required=True'
 args=parser.parse_args()
 #other parameters
 num_workers = 20
-Project_name = 'ori_render_B40'   #Project_name
+Project_name = 'trans_render_B80' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
 finetune_path =None
+# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_129_checkpoint_step000069000.pth'
 ref_N = 3
 T = 1
 print('Project_name:', Project_name)
-batch_size = 40#96       #### batch_size
-batch_size_val = 40#96    #### batch_size
+batch_size = 8#80#96       #### batch_size #能被4整除，在每张卡上的batch才是一样的
+batch_size_val = 8#80#96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -303,18 +305,19 @@ if __name__ == '__main__':
     device = torch.device("cuda")
     # create a model and optimizer
     model = Renderer().cuda()
+    # print ("model_device", next (model.parameters()).device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     if finetune_path is not None:  ###fine tune
         load_checkpoint(finetune_path, model, optimizer, reset_optimizer=False, overwrite_global_states=False)
-
+    disc = disc.cuda()
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
         disc = nn.DataParallel(disc)
-    disc = disc.cuda()
+    # disc = disc.cuda()
     disc_optimizer = torch.optim.Adam([p for p in disc.parameters() if p.requires_grad],lr=1e-4, betas=(0.5, 0.999))
     # create dataset
-    train_dataset = Dataset('train')
-    val_dataset = Dataset('test')
+    train_dataset = Dataset('train')# Dataset('test')# Dataset('train')
+    val_dataset = Dataset('test')# Dataset('test-100')# Dataset('test')
     train_data_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -386,7 +389,7 @@ if __name__ == '__main__':
             running_gen_loss+= perceptual_gen_loss.item()
             if global_step % checkpoint_interval == 0:
                 save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch, prefix=Project_name)
-            if  global_step % evaluate_interval == 0 or global_step == 100 or global_step == 500:
+            if  global_step % evaluate_interval == 0: #or global_step == 100 or global_step == 500:
                 with torch.no_grad():
                     evaluate(model, val_data_loader)
             prog_bar.set_description('epoch: %d step: %d running_warp_loss: %.4f running_gen_loss: %.4f' \

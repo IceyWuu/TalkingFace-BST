@@ -7,104 +7,6 @@ from torch.nn import TransformerDecoder, TransformerDecoderLayer
 import math
 
 
-class AdaINLayer(nn.Module):
-    def __init__(self, input_nc, modulation_nc):
-        super().__init__()
-
-        self.InstanceNorm2d = nn.InstanceNorm2d(input_nc, affine=False)
-
-        nhidden = 128
-        use_bias=True
-
-        self.mlp_shared = nn.Sequential(
-            nn.Linear(modulation_nc, nhidden, bias=use_bias),
-            nn.ReLU()
-        )
-        self.mlp_gamma = nn.Linear(nhidden, input_nc, bias=use_bias)
-        self.mlp_beta = nn.Linear(nhidden, input_nc, bias=use_bias)
-
-    def forward(self, input, modulation_input):
-
-        # Part 1. generate parameter-free normalized activations
-        normalized = self.InstanceNorm2d(input)
-
-        # Part 2. produce scaling and bias conditioned on feature
-        modulation_input = modulation_input.view(modulation_input.size(0), -1)
-        actv = self.mlp_shared(modulation_input)
-        gamma = self.mlp_gamma(actv)
-        beta = self.mlp_beta(actv)
-
-        # apply scale and bias
-        gamma = gamma.view(*gamma.size()[:2], 1,1)
-        beta = beta.view(*beta.size()[:2], 1,1)
-        out = normalized * (1 + gamma) + beta
-        return out
-
-class AdaIN(torch.nn.Module):
-
-    def __init__(self, input_channel, modulation_channel,kernel_size=3, stride=1, padding=1):
-        super(AdaIN, self).__init__()
-        self.conv_1 = torch.nn.Conv2d(input_channel, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.conv_2 = torch.nn.Conv2d(input_channel, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.leaky_relu = torch.nn.LeakyReLU(0.2)
-        self.adain_layer_1 = AdaINLayer(input_channel, modulation_channel)
-        self.adain_layer_2 = AdaINLayer(input_channel, modulation_channel)
-
-    def forward(self, x, modulation):
-
-        x = self.adain_layer_1(x, modulation)
-        x = self.leaky_relu(x)
-        x = self.conv_1(x)
-        x = self.adain_layer_2(x, modulation)
-        x = self.leaky_relu(x)
-        x = self.conv_2(x)
-
-        return x
-
-
-
-
-class SPADELayer(torch.nn.Module):
-    def __init__(self, input_channel, modulation_channel, hidden_size=256, kernel_size=3, stride=1, padding=1):
-        super(SPADELayer, self).__init__()
-        self.instance_norm = torch.nn.InstanceNorm2d(input_channel)
-
-        self.conv1 = torch.nn.Conv2d(modulation_channel, hidden_size, kernel_size=kernel_size, stride=stride,
-                                     padding=padding)
-        self.gamma = torch.nn.Conv2d(hidden_size, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.beta = torch.nn.Conv2d(hidden_size, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
-
-    def forward(self, input, modulation):
-        norm = self.instance_norm(input)
-
-        conv_out = self.conv1(modulation)
-
-        gamma = self.gamma(conv_out)
-        beta = self.beta(conv_out)
-
-        return norm + norm * gamma + beta
-
-
-class SPADE(torch.nn.Module):
-    def __init__(self, num_channel, num_channel_modulation, hidden_size=256, kernel_size=3, stride=1, padding=1):
-        super(SPADE, self).__init__()
-        self.conv_1 = torch.nn.Conv2d(num_channel, num_channel, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.conv_2 = torch.nn.Conv2d(num_channel, num_channel, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.leaky_relu = torch.nn.LeakyReLU(0.2)
-        self.spade_layer_1 = SPADELayer(num_channel, num_channel_modulation, hidden_size, kernel_size=kernel_size,
-                                        stride=stride, padding=padding)
-        self.spade_layer_2 = SPADELayer(num_channel, num_channel_modulation, hidden_size, kernel_size=kernel_size,
-                                        stride=stride, padding=padding)
-
-    def forward(self, input, modulations): # stride=1，在forward里输入输出向量大小不变
-        input = self.spade_layer_1(input, modulations)
-        input = self.leaky_relu(input)
-        input = self.conv_1(input)
-        input = self.spade_layer_2(input, modulations)
-        input = self.leaky_relu(input)
-        input = self.conv_2(input)
-        return input
-
 ## 同landmark generator
 class PositionalEmbedding(nn.Module):
     def __init__(self, d_model=512, max_len=512):
@@ -126,6 +28,305 @@ class PositionalEmbedding(nn.Module):
     def forward(self, x):
         return self.pe[:, :x.size(1)]
 
+# class AdaINLayer(nn.Module):# 256 or 64,   512
+#     def __init__(self, input_nc, modulation_nc,
+#                  T=1,d_model=256,nlayers=3,nhead=1,dim_feedforward=512,dropout=0.1):
+#         super().__init__()
+
+#         # self.InstanceNorm2d = nn.InstanceNorm2d(input_nc, affine=False)
+
+#         #nhidden = 128
+#         nhidden = input_nc
+#         use_bias=True
+
+#         self.mlp_shared = nn.Sequential(
+#             nn.Linear(modulation_nc, nhidden, bias=use_bias),
+#             nn.ReLU()
+#         )
+#         # self.mlp_gamma = nn.Linear(nhidden, input_nc, bias=use_bias)
+#         # self.mlp_beta = nn.Linear(nhidden, input_nc, bias=use_bias)
+
+#         encoder_layers = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True)
+#         self.transformer_encoder = TransformerEncoder(encoder_layers, int(nlayers)) #!!说是float不能看作是整数
+#         decoder_layers = TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True) 
+#         self.transformer_decoder = TransformerDecoder(decoder_layers, int(nlayers))
+#         self.Norm_1=nn.LayerNorm(d_model) # normalization layer
+#         self.Norm_2=nn.LayerNorm(d_model) # normalization layer
+#         self.position_in = PositionalEmbedding(d_model=d_model,max_len=d_model)  #for input image
+#         self.position_au = PositionalEmbedding(d_model=d_model,max_len=d_model)  #for input sketch
+#         self.dropout = nn.Dropout(p=dropout)
+
+#     def forward(self, input, modulation_input):
+#         # (B*1,256,64,64), (B*1,1,512)
+#         #  (B*1,64,128,128),(B*1,1,512)
+
+#         # Part 1. generate parameter-free normalized activations
+#         # normalized = self.InstanceNorm2d(input)
+
+#         # Part 2. produce scaling and bias conditioned on feature
+#         modulation_input = modulation_input.view(modulation_input.size(0), -1) # (B*1,512)
+#         # actv = self.mlp_shared(modulation_input) # (B*1,128)
+#         audio_feature = self.mlp_shared(modulation_input) # (B*1,256)
+#         # gamma = self.mlp_gamma(actv) # gamma (B, 256)
+#         # beta = self.mlp_beta(actv)
+# # 
+#         # apply scale and bias
+#         # gamma = gamma.view(*gamma.size()[:2], 1,1) # *gamma.size()[:2]返回的是gamma前两个维度的大小
+#         # beta = beta.view(*beta.size()[:2], 1,1) # 得到的是(B*1, 256, 1, 1)，为了后面能进行广播用的
+#         # out = normalized * (1 + gamma) + beta   # 用广播机制进行运算
+#         input = input.flatten(2).permute(0,2,1) # (B*1, 4096, 256)
+#         # !!!!audio_feature 应该手动广播成(B*1, 4096, 256)，这里还没换！！
+#         audio_feature = audio_feature.expand(-1, -1, input.size(-1)) # (B*1, 256, 4096) 手动广播
+
+#         #normalization
+#         input_embedding = self.Norm_1(input) # (B*1, 4096, 256) 
+#         audio_embedding = self.Norm_2(audio_feature) # (B*1, 256, 4096)  
+
+#         # (1).  positional(temporal) encoding
+#         position_in_encoding = self.position_in(input_embedding)
+#         position_au_encoding = self.position_au(audio_embedding)
+
+#         #(2)  modality encoding
+
+#         input_tokens = input_embedding + position_in_encoding # + modality_v    
+#         audio_tokens = audio_embedding + position_au_encoding # + modality_a   
+
+#         input_tokens = self.dropout(input_tokens)
+#         audio_tokens = self.dropout(audio_tokens) 
+
+#         #(4) input to transformer # 编、解码器都是nlayers=3层,nhead=1
+#         output_encoder = self.transformer_encoder(input_tokens)
+#         output_decoder = self.transformer_decoder(audio_tokens, output_encoder) # output_encoder作为kv
+#         # q, kv
+#         # 原来的形状 # (B*1, 256, 64 * 64) 
+#         output_decoder = output_decoder.reshape(-1, self.input_channel, output_decoder.shape(-1)** 0.5, output_decoder.shape(-1) ** 0.5)
+#         return output_decoder
+
+#         # return out
+
+# class AdaIN(torch.nn.Module):
+
+#     def __init__(self, input_channel, modulation_channel,kernel_size=3, stride=1, padding=1,
+#                  T=1,d_model=256,nlayers=3,nhead=1,dim_feedforward=512,dropout=0.1):
+#         super(AdaIN, self).__init__()
+#         self.conv_1 = torch.nn.Conv2d(input_channel, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+#         self.conv_2 = torch.nn.Conv2d(input_channel, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+#         self.leaky_relu = torch.nn.LeakyReLU(0.2)
+#         self.adain_layer_1 = AdaINLayer(input_channel, modulation_channel,
+#                                         T=1,d_model=256,nlayers=3,nhead=1,dim_feedforward=512,dropout=0.1) #AdaIN(256,512)
+#         self.adain_layer_2 = AdaINLayer(input_channel, modulation_channel,
+#                                         T=1,d_model=64,nlayers=3,nhead=1,dim_feedforward=128,dropout=0.1) #AdaIN(64,512)
+
+#     def forward(self, x, modulation): 
+#         #  (B*1,256,64,64), (B*1,1,512)
+#         #  (B*1,64,128,128),(B*1,1,512)
+
+#         x = self.adain_layer_1(x, modulation)
+#         x = self.leaky_relu(x)
+#         x = self.conv_1(x)
+#         x = self.adain_layer_2(x, modulation)
+#         x = self.leaky_relu(x)
+#         x = self.conv_2(x)
+
+#         return x
+
+class AdaINLayer(nn.Module):# 256 or 64,   512
+    def __init__(self, input_nc, modulation_nc):
+        super().__init__()
+
+        self.InstanceNorm2d = nn.InstanceNorm2d(input_nc, affine=False)
+
+        nhidden = 128
+        use_bias=True
+
+        self.mlp_shared = nn.Sequential(
+            nn.Linear(modulation_nc, nhidden, bias=use_bias),
+            nn.ReLU()
+        )
+        self.mlp_gamma = nn.Linear(nhidden, input_nc, bias=use_bias)
+        self.mlp_beta = nn.Linear(nhidden, input_nc, bias=use_bias)
+
+    def forward(self, input, modulation_input):
+        # (B*1,256,64,64), (B*1,1,512)
+        #  (B*1,64,128,128),(B*1,1,512)
+
+        # Part 1. generate parameter-free normalized activations
+        normalized = self.InstanceNorm2d(input)
+
+        # Part 2. produce scaling and bias conditioned on feature
+        modulation_input = modulation_input.view(modulation_input.size(0), -1) # (B*1,512)
+        actv = self.mlp_shared(modulation_input) # (B*1,128)
+        gamma = self.mlp_gamma(actv) # gamma (B, 256)
+        beta = self.mlp_beta(actv)
+
+        # apply scale and bias
+        gamma = gamma.view(*gamma.size()[:2], 1,1) # *gamma.size()[:2]返回的是gamma前两个维度的大小
+        beta = beta.view(*beta.size()[:2], 1,1) # 得到的是(B*1, 256, 1, 1)，为了后面能进行广播用的
+        out = normalized * (1 + gamma) + beta # 用广播机制进行运算
+        return out
+
+class AdaIN(torch.nn.Module):
+
+    def __init__(self, input_channel, modulation_channel,kernel_size=3, stride=1, padding=1):
+        super(AdaIN, self).__init__()
+        self.conv_1 = torch.nn.Conv2d(input_channel, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.conv_2 = torch.nn.Conv2d(input_channel, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.leaky_relu = torch.nn.LeakyReLU(0.2)
+        self.adain_layer_1 = AdaINLayer(input_channel, modulation_channel) #AdaIN(256,512)
+        self.adain_layer_2 = AdaINLayer(input_channel, modulation_channel) #AdaIN(64,512)
+
+    def forward(self, x, modulation): 
+        #  (B*1,256,64,64), (B*1,1,512)
+        #  (B*1,64,128,128),(B*1,1,512)
+
+        x = self.adain_layer_1(x, modulation)
+        x = self.leaky_relu(x)
+        x = self.conv_1(x)
+        x = self.adain_layer_2(x, modulation)
+        x = self.leaky_relu(x)
+        x = self.conv_2(x)
+
+        return x
+
+
+class SPADELayer_ORI(torch.nn.Module):
+    def __init__(self, input_channel, modulation_channel, hidden_size=256, kernel_size=3, stride=1, padding=1):
+        super(SPADELayer_ORI, self).__init__()
+        self.instance_norm = torch.nn.InstanceNorm2d(input_channel)
+
+        self.conv1 = torch.nn.Conv2d(modulation_channel, hidden_size, kernel_size=kernel_size, stride=stride,
+                                     padding=padding)
+        self.gamma = torch.nn.Conv2d(hidden_size, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.beta = torch.nn.Conv2d(hidden_size, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+# encoder decoder
+    def forward(self, input, modulation):
+        norm = self.instance_norm(input)
+
+        conv_out = self.conv1(modulation) # b256,64,64 -> b,256,4096
+
+        gamma = self.gamma(conv_out)
+        beta = self.beta(conv_out)
+
+        return norm + norm * gamma + beta
+
+
+class SPADE_ORI(torch.nn.Module):
+    def __init__(self, num_channel, num_channel_modulation, hidden_size=256, kernel_size=3, stride=1, padding=1):
+        super(SPADE_ORI, self).__init__()
+        self.conv_1 = torch.nn.Conv2d(num_channel, num_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.conv_2 = torch.nn.Conv2d(num_channel, num_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.leaky_relu = torch.nn.LeakyReLU(0.2)
+        self.spade_layer_1 = SPADELayer_ORI(num_channel, num_channel_modulation, hidden_size, kernel_size=kernel_size,
+                                        stride=stride, padding=padding)
+        self.spade_layer_2 = SPADELayer_ORI(num_channel, num_channel_modulation, hidden_size, kernel_size=kernel_size,
+                                        stride=stride, padding=padding)
+
+    def forward(self, input, modulations): # stride=1，在forward里输入输出向量大小不变
+        input = self.spade_layer_1(input, modulations)
+        input = self.leaky_relu(input)
+        input = self.conv_1(input)
+        input = self.spade_layer_2(input, modulations)
+        input = self.leaky_relu(input)
+        input = self.conv_2(input)
+        return input
+
+
+class SPADELayer(torch.nn.Module): # input_channel:256 or 64; modulation_channel=3*5; hidden_size=256
+    def __init__(self, input_channel, modulation_channel, hidden_size=256, kernel_size=3, stride=1, padding=1,
+                 T=1,d_model=256,nlayers=3,nhead=1,dim_feedforward=512,dropout=0.1):
+        super(SPADELayer, self).__init__()
+        # self.instance_norm = torch.nn.InstanceNorm2d(input_channel)
+
+        self.conv1 = torch.nn.Conv2d(modulation_channel, hidden_size, kernel_size=kernel_size, stride=stride,
+                                     padding=padding)
+        # self.gamma = torch.nn.Conv2d(hidden_size, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+        # self.beta = torch.nn.Conv2d(hidden_size, input_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+
+        self.input_channel = input_channel
+        # encoder_layers = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True)
+        # self.transformer_encoder = TransformerEncoder(encoder_layers, int(nlayers)) #!!说是float不能看作是整数
+        decoder_layers = TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True) 
+        self.transformer_decoder = TransformerDecoder(decoder_layers, int(nlayers)) #!!说是float不能看作是整数
+        self.Norm_1=nn.LayerNorm(256) # normalization layer
+        self.Norm_2=nn.LayerNorm(256) # 两个tokens的normalization是不一样的，不能只用一个
+ 
+        self.position_in = PositionalEmbedding(d_model=d_model,max_len=4096)  #for input image
+        self.position_sk = PositionalEmbedding(d_model=d_model,max_len=4096)  #for input sketch
+        self.dropout = nn.Dropout(p=dropout)
+        
+        self.d_model=d_model
+        print("d_model_init",d_model)
+
+
+#定义 encoder decoder                     
+    def forward(self, input, modulation): #icey input (B*1, 256, 64, 64) #modulation(B*1, 3*5, 64, 64)
+        # norm = self.instance_norm(input)
+        input = input.flatten(2).permute(0,2,1) # (B*1, 4096, 256)  
+        conv_out = self.conv1(modulation) # (B*1, 256, 64， 64) 
+        conv_out = conv_out.flatten(2).permute(0,2,1) # (B*1, 4096, 256)      
+# input b,256,4096 key
+# modulation→conv_out-b,256,64,64 -> b,256,4096
+
+        # gamma = self.gamma(conv_out) # or(B*1, 64, 128, 128)
+        # beta = self.beta(conv_out)
+
+        #normalization
+        input_embedding = self.Norm_1(input) # (B*1, 4096, 256)  
+        conv_out_embedding = self.Norm_2(conv_out)
+
+        # 输入到encoder decoder
+        # (1).  positional(temporal) encoding
+        position_in_encoding = self.position_in(input_embedding) # (1, 4096, 256)  
+        position_sk_encoding = self.position_sk(conv_out_embedding)
+        #(2)  modality encoding
+        input_tokens = input_embedding + position_in_encoding # + modality_v   # (B*1, 4096, 256)   
+        sketch_tokens = conv_out_embedding + position_sk_encoding # + modality_a   
+
+        input_tokens = self.dropout(input_tokens) # (B*1, 4096, 256)  
+        sketch_tokens = self.dropout(sketch_tokens) 
+
+        # #(4) input to transformer # nhead=1
+        # encoder + decoder
+        # output_encoder = self.transformer_encoder(input_tokens)
+        # output_decoder = self.transformer_decoder(sketch_tokens, output_encoder)
+        
+        # 只有decoder
+        output_decoder = self.transformer_decoder(sketch_tokens, input_tokens) # output_encoder作为kv
+        
+        # 原来的形状
+        output_decoder = output_decoder.permute(0, 2, 1) # (B*1, 256, 4096)  
+        #print("int(output_decoder.size(-1)** 0.5)",int(output_decoder.size(-1)** 0.5))
+        output_decoder = output_decoder.reshape(-1, self.input_channel, int(output_decoder.size(-1)** 0.5), int(output_decoder.size(-1) ** 0.5))
+        
+        return output_decoder
+
+        # return norm + norm * gamma + beta# 直接返回decoder的结果
+
+
+class SPADE(torch.nn.Module):
+    def __init__(self, num_channel, num_channel_modulation, hidden_size=256, kernel_size=3, stride=1, padding=1,
+                 T=1,d_model=256,nlayers=3,nhead=1,dim_feedforward=512,dropout=0.1):
+        super(SPADE, self).__init__()
+        print("Transformer layer",nlayers)
+        self.conv_1 = torch.nn.Conv2d(num_channel, num_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.conv_2 = torch.nn.Conv2d(num_channel, num_channel, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.leaky_relu = torch.nn.LeakyReLU(0.2)
+        self.spade_layer_1 = SPADELayer(num_channel, num_channel_modulation, hidden_size, kernel_size=kernel_size,
+                                        stride=stride, padding=padding,
+                                        T=T,d_model=d_model,nlayers=nlayers,nhead=nhead,dim_feedforward=dim_feedforward,dropout=dropout)
+        self.spade_layer_2 = SPADELayer(num_channel, num_channel_modulation, hidden_size, kernel_size=kernel_size,
+                                        stride=stride, padding=padding,
+                                        T=T,d_model=d_model,nlayers=nlayers,nhead=nhead,dim_feedforward=dim_feedforward,dropout=dropout)
+
+    def forward(self, input, modulations): # stride=1，在forward里输入输出向量大小不变
+        input = self.spade_layer_1(input, modulations)
+        input = self.leaky_relu(input)
+        input = self.conv_1(input)
+        input = self.spade_layer_2(input, modulations)
+        input = self.leaky_relu(input)
+        input = self.conv_2(input)
+        return input
+
 class Conv2d(nn.Module):
     def __init__(self, cin, cout, kernel_size, stride, padding, residual=False, act='ReLU', *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -146,7 +347,7 @@ class Conv2d(nn.Module):
             out += x
         return self.act(out)
 
-def downsample(x, size): # Icey: driving_sketch:(B*T, 3, H, W) size:(64, 64)
+def downsample(x, size): # Icey: driving_sketch:(B, 3*5, H, W) size:(64, 64)
     if len(x.size()) == 5:
         size = (x.size(2), size[0], size[1])
         return torch.nn.functional.interpolate(x, size=size, mode='nearest')
@@ -206,73 +407,10 @@ def warping(source_image, deformation):
         deformation = deformation.permute(0, 2, 3, 1)
     return torch.nn.functional.grid_sample(source_image, deformation) # 对输入图像进行变形，利用形变张量中的信息进行像素插值，得到输出的变形后的图像
 
-## 同landmark generator
-class Fusion_transformer(nn.Module): # d_model是embedding size，字符转换为词向量的维度；dim_feedforward是前馈神经网络中线性层映射到的维度
-    def __init__(self,T, d_model, nlayers, nhead, dim_feedforward,  # 1024   128 #Icey 输入的embdding维度d_model=512, 经过feedforward后的维度dim_feedforward=1024
-                 dropout=0.1):
-        super().__init__()
-        self.T=T
-        self.position_h2 = PositionalEmbedding(d_model=512)  #for h2 landmarks
-        self.position_sk = PositionalEmbedding(d_model=512)  #for sketch embedding
-        # self.position_v = PositionalEmbedding(d_model=512)  #for visual landmarks
-        # self.position_a = PositionalEmbedding(d_model=512)  #for audio embedding
-        self.modality = nn.Embedding(3, 512, padding_idx=0) # 1 for h2,  2 for sketch
-        # 长度为4的张量，每个大小是512。torch.nn 包下的Embedding，作为训练的一层，随模型训练得到适合的词向量
-        # self.modality = nn.Embedding(4, 512, padding_idx=0)  # 1 for pose,  2  for  audio, 3 for reference landmarks 
-        self.dropout = nn.Dropout(p=dropout) # Dropout来避免过拟合，dropout=0.1即10%的数据会填补为0
-        # encoder & decoder, nlayers = 3
-        encoder_layers = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True) # batch_first: 输入输出Tensor中batch是否为第零维度
-        self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-        decoder_layers = TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True) 
-        self.transformer_decoder = TransformerDecoder(decoder_layers, nlayers)
-
-
-    # ref_embedding,mel_embedding,pose_embedding #(B,Nl,512)  (B,T,512)    (B,T,512) # Nl=15
-    def forward(self,h2_embedding, sketch_embedding): #(B,T,512), T=1
-                #[h2(B*T,512), driving_sketch(B*T, 512)]-> (B*T, xxxx)!!!!!!
-        # (1).  positional(temporal) encoding
-        position_h2_encoding = self.position_h2(h2_embedding) # (1,1,512)
-        position_sketch_encoding = self.position_sk(sketch_embedding) # (1,1,512)
-        # position_v_encoding = self.position_v(pose_embedding)  # (1,  T, 512) # Icey (B,T,512)
-        # position_a_encoding = self.position_a(mel_embedding)
-
-        # #(2)  modality encoding # 模态编码，区分它们来自于不同的模态或来源
-        modality_h2 = self.modality(1 * torch.ones((h2_embedding.size(0), self.T), dtype=torch.int).cuda()) #(B,T,512) T=1
-        modality_sk = self.modality(2 * torch.ones((sketch_embedding.size(0),  self.T), dtype=torch.int).cuda()) # #(B,T,512) T=1
-        # modality_v = self.modality(1 * torch.ones((pose_embedding.size(0), self.T), dtype=torch.int).cuda())
-        # modality_a = self.modality(2 * torch.ones((mel_embedding.size(0),  self.T), dtype=torch.int).cuda())
-        # print("modality_h2",modality_h2.size())
-        # print("modality_sk",modality_sk.size())
-
-        h2_tokens = h2_embedding + position_h2_encoding + modality_h2 #(B , T, 512 ) T=1
-        sketch_tokens = sketch_embedding + position_sketch_encoding + modality_sk #(B , T, 512 ) T=1
-        # h2 (20, 5, 512), sketch_tokens (20, 5, 512)
-        # print("h2_tokens",h2_tokens.size())
-        # print("sketch_tokens",sketch_tokens.size())
-
-        # pose_tokens = pose_embedding + position_v_encoding + modality_v    #(B , T, 512 )
-        # audio_tokens = mel_embedding + position_a_encoding + modality_a    #(B , T, 512 )
-        # ref_tokens = ref_embedding + self.modality(
-        #     3 * torch.ones((ref_embedding.size(0), ref_embedding.size(1)), dtype=torch.int).cuda())
-
-        # (3) concat tokens
-        h2_tokens = self.dropout(h2_tokens)
-        sketch_tokens = self.dropout(sketch_tokens)
-        # input_tokens = torch.cat((audio_tokens, pose_tokens), dim=1)  # Icey (B,T+T,512)
-        # input_tokens = self.dropout(input_tokens)
-        # ref_tokens = self.dropout(ref_tokens)
-
-        #(4) input to transformer!!!!!!待定，哪个作为q，哪个作为kv
-        encoder_output = self.transformer_encoder(h2_tokens) #(20, 1, 512)
-        decoder_output = self.transformer_decoder(sketch_tokens, encoder_output) # sketch作为q，h2作为kv #(20, 1, 512)
-        # output = self.transformer_encoder(input_tokens)
-        # output = self.transformer_decoder(output, ref_tokens) # 编码器输出作为q，ref_tokens作为kv
-        return decoder_output
-
 
 class DenseFlowNetwork(torch.nn.Module):
     def __init__(self, num_channel=6, num_channel_modulation=3*5, hidden_size=256,
-                 T=5,d_model=512,nlayers=3,nhead=4,dim_feedforward=1024,dropout=0.1): # 初始化
+                 T=1,d_model=256,nlayers=2,nhead=1,dim_feedforward=512,dropout=0.1): # 初始化 !!!!dim_feedforward待定
         super(DenseFlowNetwork, self).__init__()
 
         # Convolutional Layers
@@ -284,55 +422,14 @@ class DenseFlowNetwork(torch.nn.Module):
         self.conv2_bn = torch.nn.BatchNorm2d(num_features=256, affine=True)
         self.conv2_relu = torch.nn.ReLU()
 
-        # h2(B*T,256,64,64)
-        self.h2_flatten = nn.Sequential(# !!!!!!不知道对不对
-            Conv2d(256, 256, kernel_size=3, stride=3, padding=1),  #(256,22,22)
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True), 
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True), 
-
-            Conv2d(256, 256, kernel_size=3, stride=3, padding=1),  #(256,8,8)
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True), 
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True), 
-
-            Conv2d(256, 256, kernel_size=3, stride=3, padding=1),  #(256,3,3)
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True), 
-
-            Conv2d(256, 512, kernel_size=3, stride=1, padding=0),  #(512,1,1)
-            Conv2d(512, 512, kernel_size=1, stride=1, padding=0, act='Tanh'), 
-        )
-        # driving_sketch (B, 3*5, 128, 128)
-        self.driving_sketch_flatten = nn.Sequential(
-            Conv2d(15, 32, kernel_size=3, stride=1, padding=1), # (32,128,128)
-            Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
-            Conv2d(32, 32, kernel_size=3, stride=1, padding=1, residual=True),
-
-            Conv2d(32, 64, kernel_size=3, stride=3, padding=1), # (64,43,43)
-            Conv2d(64, 64, kernel_size=3, stride=1, padding=1, residual=True),
-            Conv2d(64, 64, kernel_size=3, stride=1, padding=1, residual=True),
-
-            Conv2d(64, 128, kernel_size=3, stride=3, padding=1), # (128,15,15)
-            Conv2d(128, 128, kernel_size=3, stride=1, padding=1, residual=True),
-            Conv2d(128, 128, kernel_size=3, stride=1, padding=1, residual=True),
-
-            Conv2d(128, 256, kernel_size=3, stride=3, padding=1), # (256,5,5)
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True),
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1, residual=True),
-
-            Conv2d(256, 512, kernel_size=3, stride=1, padding=0), # (512,3,3)
-            Conv2d(512, 512, kernel_size=3, stride=1, padding=0,act='Tanh'), ## (512,1,1)
-        )
-        
-        # SPADE Blocks 换成 transformer encoder+decoder（3层），都是两个输入得到一个输出
-        # 输入tranformer之前输入前要conv输出拉长再输入，先layernormal一下
-
-        # T=5 d_model=? nlayers=3 nhead=? dim_feedforward=? dropout=0.1 !!!!! init处设置
-        self.fusion_transformer = Fusion_transformer(1,d_model,nlayers,nhead,dim_feedforward,dropout) # 设置T=1
-        self.Norm=nn.LayerNorm(512) # normalization layer
-        # spade （input_channel, modulation_channel, hidden_size=256, kernel_size=3, stride=1, padding=1）
-        self.spade_layer_1 = SPADE(256, num_channel_modulation, hidden_size)
-        self.spade_layer_2 = SPADE(256, num_channel_modulation, hidden_size)
+        self.spade_layer_1 = SPADE(256, num_channel_modulation, hidden_size,
+                                   T=T,d_model=d_model,nlayers=nlayers,nhead=nhead,dim_feedforward=dim_feedforward,dropout=dropout)
+        # SPADE 第2层和第4层都去掉
+        # self.spade_layer_2 = SPADE(256, num_channel_modulation, hidden_size,
+        #                            T=T,d_model=d_model,nlayers=nlayers,nhead=nhead,dim_feedforward=dim_feedforward,dropout=dropout)
         self.pixel_shuffle_1 = torch.nn.PixelShuffle(2) # Icey r = 2, (∗,C × r^2 ,H,W) to (∗,C,H × r,W × r)
-        self.spade_layer_4 = SPADE(64, num_channel_modulation, hidden_size)
+        # self.spade_layer_4 = SPADE(64, num_channel_modulation, hidden_size,
+        #                            T=T,d_model=16384,nlayers=nlayers,nhead=nhead,dim_feedforward=dim_feedforward,dropout=dropout)
 
         # Final Convolutional Layer
         self.conv_4 = torch.nn.Conv2d(64, 2, kernel_size=7, stride=1, padding=3)
@@ -369,40 +466,22 @@ class DenseFlowNetwork(torch.nn.Module):
             # h2 (20, 256, 64, 64), 因为 T = 1
             
             # SPADE Blocks↓-------------------------------------------------------
-            # downsample_64 = downsample(driving_sketch, (64, 64))
-            # # driving_sketch:(B, T*3, H, W), downsample_64(B, T*3, 64, 64) T=5
+            downsample_64 = downsample(driving_sketch, (64, 64))
+            # driving_sketch:(B, T*3, 128, 128), downsample_64(B, 5*3, 64, 64) T=5
 
-            # # Icey 大小前面还有 B*T
-            # # spade有两层，的两个输入是 h2 和 driving_sketch
-            # spade_layer = self.spade_layer_1(h2, downsample_64)  #(256,64,64)
+            # Icey 大小前面还有 B*T
+            # spade有两层，的两个输入是 h2 和 driving_sketch
+            spade_layer = self.spade_layer_1(h2, downsample_64)  #(256,64,64)
             # spade_layer = self.spade_layer_2(spade_layer, downsample_64)   #(256,64,64)
 
-            # spade_layer = self.pixel_shuffle_1(spade_layer)   #(64,128,128)
+            spade_layer = self.pixel_shuffle_1(spade_layer)   #(64,128,128)
+            
+            # driving_sketch:(B, 5*3, 128, 128)
 
             # spade_layer = self.spade_layer_4(spade_layer, driving_sketch)    #(64,128,128)
+
             # SPADE Blocks↑-------------------------------------------------------
-            
-            # Transformer↓---- T=1 ----------------------------------------------------
-            # 进去 h2(B*1,256,64,64), driving_sketch(B, 3*5, 64, 64) 出来 (B*T,64,128,128)
-            
-            # !!!!!! #[h2(B*1,256,64,64), driving_sketch(B,3*5,128,128)]-> (B*1, xxx) 512 ?!!!!!!
-            # driving_sketch_trans=torch.cat([T_driving_sketch[i] for i in range(T_driving_sketch.size(0))], dim=0) # (B*T,3,H,W)
-            h2_embedding = self.h2_flatten(h2).squeeze(-1).squeeze(-1) # (B*1,512)
-            driving_sketch_embedding = self.driving_sketch_flatten(driving_sketch).squeeze(-1).squeeze(-1) # (B*1,512)
-
-            #normalization
-            h2_embedding = self.Norm(h2_embedding)
-            driving_sketch_embedding = self.Norm(driving_sketch_embedding)
-
-            h2_embedding = torch.stack(torch.split(h2_embedding, T), dim=0) # (B,1,512)
-            driving_sketch_embedding = torch.stack(torch.split(driving_sketch_embedding, T), dim=0) # (B,1,512)
-
-            transformer_layer = self.fusion_transformer(h2_embedding, driving_sketch_embedding) # (B, T, 512) T=1
-            print("transformer_layer",transformer_layer.size())
-
-            # transformer_layer = self.pixel_shuffle_1(transformer_layer) # (B/2, 2, 1024)
-
-            # Transformer↑--------------------------------------------------------
+            # 进去 h2(B*1,256,64,64), driving_sketch(B, 3*5, 64, 64) 出来 (B*1,64,128,128)
 
             # Final Convolutional Layer # conv4 (in 64, out 2) # conv5 (in 64, out 1)
             output_flow = self.conv_4(spade_layer)      #   (B*T,2,128,128)
@@ -426,7 +505,7 @@ class DenseFlowNetwork(torch.nn.Module):
 
 
 class TranslationNetwork(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, T=1,d_model=256,nlayers=3,nhead=1,dim_feedforward=512,dropout=0.1):
         super(TranslationNetwork, self).__init__()
         self.audio_encoder = nn.Sequential( # 这个encoder和Landmark_generator一样，但act不同
             Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
@@ -457,14 +536,21 @@ class TranslationNetwork(torch.nn.Module):
         self.conv2_relu = torch.nn.ReLU()
 
         # Decoder
-        self.spade_1 = SPADE(num_channel=256, num_channel_modulation=256)
+        self.spade_1 = SPADE(num_channel=256, num_channel_modulation=256,
+                             T=T,d_model=d_model,nlayers=nlayers,nhead=nhead,dim_feedforward=dim_feedforward,dropout=dropout)
         self.adain_1 = AdaIN(256,512)
         self.pixel_suffle_1 = nn.PixelShuffle(upscale_factor=2) # Icey r = 2, (∗,C × r^2 ,H,W) to (∗,C,H × r,W × r)
 
-        self.spade_2 = SPADE(num_channel=64, num_channel_modulation=32)
-        self.adain_2 = AdaIN(input_channel=64,modulation_channel=512)
+        # self.spade_2 = SPADE(num_channel=64, num_channel_modulation=32,
+        #                      T=T,d_model=16384,nlayers=nlayers,nhead=nhead,dim_feedforward=dim_feedforward,dropout=dropout)
+        # self.adain_2 = AdaIN(input_channel=64,modulation_channel=512)
 
-        self.spade_4 = SPADE(num_channel=64, num_channel_modulation=3)
+        # self.spade_4 = SPADE(num_channel=64, num_channel_modulation=3,
+        #                      T=T,d_model=16384,nlayers=nlayers,nhead=nhead,dim_feedforward=dim_feedforward,dropout=dropout)
+
+        self.spade_2 = SPADE_ORI(num_channel=64, num_channel_modulation=32)
+        self.adain_2 = AdaIN(input_channel=64,modulation_channel=512)
+        self.spade_4 = SPADE_ORI(num_channel=64, num_channel_modulation=3)
 
         # Final layer
         self.leaky_relu = torch.nn.LeakyReLU()
@@ -477,7 +563,8 @@ class TranslationNetwork(torch.nn.Module):
         x = self.conv1_relu(self.conv1_bn(self.conv1(translation_input)))    #B,32,128,128
         x = self.conv2_relu(self.conv2_bn(self.conv2(x)))  #B,256,64,64
 
-        audio_feature = self.audio_encoder(T_mels).squeeze(-1).permute(0,2,1) #(B*T,1,512)
+        #print("T_mels",T_mels.size()) #1, 1, 80, 16 error, 原来的是20, 1, 80, 16 
+        audio_feature = self.audio_encoder(T_mels).squeeze(-1).permute(0,2,1) #(B*T,1,512) #T=1
 
         # Decoder
         x = self.spade_1(x, wrapped_h2) # (C=256,64,64)
@@ -510,7 +597,7 @@ class Renderer(torch.nn.Module):
                                          num_scales=2)
 
     def forward(self, face_frame_img, target_sketches, ref_N_frame_img, ref_N_frame_sketch, audio_mels): #T=1
-        #            (B,1,3,H,W)   (B,5,3,H,W)       (B,N,3,H,W)   (B,N,3,H,W)  (B,T,1,hv,wv)T=1
+        #            (B,1,3,H,W)   (B,5,3,H,W)       (B,N,3,H,W)   (B,N,3,H,W)  (B,T,1,hv,wv)T=1 Icey:audio(B,1,1,80,16)
         # (1)warping reference images and their feature
         wrapped_h1, wrapped_h2, wrapped_ref = self.flow_module(ref_N_frame_img, ref_N_frame_sketch, target_sketches)
         #(B,C,H,W)
