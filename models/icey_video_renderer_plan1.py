@@ -410,7 +410,7 @@ def warping(source_image, deformation):
 
 class DenseFlowNetwork(torch.nn.Module):
     def __init__(self, num_channel=6, num_channel_modulation=3*5, hidden_size=256,
-                 T=1,d_model=256,nlayers=1,nhead=1,dim_feedforward=512,dropout=0.1): # 初始化 !!!!dim_feedforward待定
+                 T=1,d_model=256,nlayers=2,nhead=1,dim_feedforward=512,dropout=0.1): # 初始化 !!!!dim_feedforward待定
         super(DenseFlowNetwork, self).__init__()
 
         # Convolutional Layers
@@ -505,7 +505,7 @@ class DenseFlowNetwork(torch.nn.Module):
 
 
 class TranslationNetwork(torch.nn.Module):
-    def __init__(self, T=1,d_model=256,nlayers=1,nhead=1,dim_feedforward=512,dropout=0.1):
+    def __init__(self, T=1,d_model=256,nlayers=3,nhead=1,dim_feedforward=512,dropout=0.1):
         super(TranslationNetwork, self).__init__()
         self.audio_encoder = nn.Sequential( # 这个encoder和Landmark_generator一样，但act不同
             Conv2d(1, 32, kernel_size=3, stride=1, padding=1),

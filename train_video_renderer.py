@@ -15,7 +15,8 @@ from piq.feature_extractors import InceptionV3
 from models import define_D
 from loss import GANLoss
 # from models.video_renderer import Renderer 
-from models.icey_video_renderer_spade import Renderer  
+# from models.icey_video_renderer_spade import Renderer  
+from models.icey_video_renderer_low import Renderer  
 import argparse
 parser=argparse.ArgumentParser()
 parser.add_argument('--sketch_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
@@ -27,7 +28,7 @@ parser.add_argument('--audio_root',default='/data/wuyubing/TalkingFace-BST/prepr
 args=parser.parse_args()
 #other parameters
 num_workers = 20
-Project_name = 'trans_render_B80' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
+Project_name = 'lowdim_render_B80' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
 finetune_path =None
 # finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_129_checkpoint_step000069000.pth'
 ref_N = 3
@@ -389,7 +390,8 @@ if __name__ == '__main__':
             running_gen_loss+= perceptual_gen_loss.item()
             if global_step % checkpoint_interval == 0:
                 save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch, prefix=Project_name)
-            if  global_step % evaluate_interval == 0: #or global_step == 100 or global_step == 500:
+            # if  global_step % evaluate_interval == 0 or global_step == 100 or global_step == 500:
+            if  global_step % 12000 == 0: #12000 for bs=8 #3000 for bs=16
                 with torch.no_grad():
                     evaluate(model, val_data_loader)
             prog_bar.set_description('epoch: %d step: %d running_warp_loss: %.4f running_gen_loss: %.4f' \
