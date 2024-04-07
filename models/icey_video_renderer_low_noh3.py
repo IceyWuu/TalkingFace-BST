@@ -5,7 +5,7 @@ import torchvision
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.nn import TransformerDecoder, TransformerDecoderLayer
 import math
-
+# plan3
 
 ## 同landmark generator
 class PositionalEmbedding(nn.Module):
@@ -491,6 +491,7 @@ class DenseFlowNetwork(torch.nn.Module):
             # SPADE Blocks↑-------------------------------------------------------
 
             # Final Convolutional Layer # conv4 (in 64, out 2) # conv5 (in 64, out 1)
+            # 只用了h3,h2,h1(downsample的h1)!!!!!
             output_flow = self.conv_4(spade_layer)      #   (B*T,2,128,128)
             output_weight=self.conv_5(spade_layer)       #  (B*T,1,128,128)
 

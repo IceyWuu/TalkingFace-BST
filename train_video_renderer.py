@@ -16,8 +16,9 @@ from models import define_D
 from loss import GANLoss
 # from models.video_renderer import Renderer 
 # from models.icey_video_renderer_spade import Renderer  
-from models.icey_video_renderer_low import Renderer  
+from models.icey_video_renderer_plan5 import Renderer  
 import argparse
+import csv
 parser=argparse.ArgumentParser()
 parser.add_argument('--sketch_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
                     help='root path for sketches') # Icey',required=True'
@@ -28,9 +29,10 @@ parser.add_argument('--audio_root',default='/data/wuyubing/TalkingFace-BST/prepr
 args=parser.parse_args()
 #other parameters
 num_workers = 20
-Project_name = 'lowdim_render_B80' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
+Project_name = 'lowdim_render_B8_plan5'#'trans_render_B8_plan1' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
 finetune_path =None
-# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_129_checkpoint_step000069000.pth'
+# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_lowdim_render_B8_plan3/lowdim_render_B80_epoch_7_checkpoint_step000045000.pth'
+# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_39_checkpoint_step000021000.pth'
 ref_N = 3
 T = 1
 print('Project_name:', Project_name)
@@ -294,6 +296,11 @@ def evaluate(model, val_data_loader):
         #                         (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)(B*T,3,H,W)
     psnr, ssim, fid= np.asarray(psnrs).mean(), np.asarray(ssims).mean(), np.asarray(fids).mean()
     print('psnr %.3f ssim %.3f fid %.3f' % (psnr, ssim, fid))
+    # write the data
+    with open('./checkpoints/renderer/metric.csv', 'a', encoding='UTF8', newline='') as f:
+        data = [global_epoch,psnr,ssim,fid,eval_warp_loss / count,eval_gen_loss / count, global_step]
+        writer_csv = csv.writer(f)
+        writer_csv.writerow(data)
     writer.add_scalar('psnr', psnr, global_step)
     writer.add_scalar('ssim', ssim, global_step)
     writer.add_scalar('fid', fid, global_step)
@@ -309,7 +316,7 @@ if __name__ == '__main__':
     # print ("model_device", next (model.parameters()).device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     if finetune_path is not None:  ###fine tune
-        load_checkpoint(finetune_path, model, optimizer, reset_optimizer=False, overwrite_global_states=False)
+        load_checkpoint(finetune_path, model, optimizer, reset_optimizer=False, overwrite_global_states=True) #overwrite_global_states=False)
     disc = disc.cuda()
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
@@ -335,6 +342,7 @@ if __name__ == '__main__':
         num_workers=num_workers,
         pin_memory=True
     )
+        
 
     while global_epoch < 9999999999:
         prog_bar = tqdm(enumerate(train_data_loader), total=len(train_data_loader))
@@ -388,10 +396,10 @@ if __name__ == '__main__':
             ##log#
             running_warp_loss += perceptual_warp_loss.item()
             running_gen_loss+= perceptual_gen_loss.item()
-            if global_step % checkpoint_interval == 0:
+            if global_step % 3000 == 0: # checkpoint_interval
                 save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch, prefix=Project_name)
             # if  global_step % evaluate_interval == 0 or global_step == 100 or global_step == 500:
-            if  global_step % 12000 == 0: #12000 for bs=8 #3000 for bs=16
+            if  global_step % 6000==0 or global_step == 100 or global_step == 500: #6000 for bs=8 #3000 for bs=16
                 with torch.no_grad():
                     evaluate(model, val_data_loader)
             prog_bar.set_description('epoch: %d step: %d running_warp_loss: %.4f running_gen_loss: %.4f' \
