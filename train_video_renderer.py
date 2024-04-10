@@ -15,8 +15,8 @@ from piq.feature_extractors import InceptionV3
 from models import define_D
 from loss import GANLoss
 # from models.video_renderer import Renderer 
-# from models.icey_video_renderer_spade import Renderer  
-from models.icey_video_renderer_plan5 import Renderer  
+from models.video_renderer_3dconv_1 import Renderer  
+# from models.icey_video_renderer_plan3 import Renderer  
 import argparse
 import csv
 parser=argparse.ArgumentParser()
@@ -29,15 +29,15 @@ parser.add_argument('--audio_root',default='/data/wuyubing/TalkingFace-BST/prepr
 args=parser.parse_args()
 #other parameters
 num_workers = 20
-Project_name = 'lowdim_render_B8_plan5'#'trans_render_B8_plan1' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
+Project_name = 'conv3_render_B80_1'#'trans_render_B8_plan1' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
 finetune_path =None
-# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_lowdim_render_B8_plan3/lowdim_render_B80_epoch_7_checkpoint_step000045000.pth'
+# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_lowdim_render_B8_plan3/lowdim_render_B8_plan3_epoch_8_checkpoint_step000048000.pth'
 # finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_39_checkpoint_step000021000.pth'
 ref_N = 3
 T = 1
 print('Project_name:', Project_name)
-batch_size = 8#80#96       #### batch_size #能被4整除，在每张卡上的batch才是一样的
-batch_size_val = 8#80#96    #### batch_size
+batch_size = 80#80#96       #### batch_size #能被4整除，在每张卡上的batch才是一样的
+batch_size_val = 80#80#96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -396,10 +396,10 @@ if __name__ == '__main__':
             ##log#
             running_warp_loss += perceptual_warp_loss.item()
             running_gen_loss+= perceptual_gen_loss.item()
-            if global_step % 3000 == 0: # checkpoint_interval
+            if global_step % checkpoint_interval == 0: # 3000 for bs=8
                 save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch, prefix=Project_name)
-            # if  global_step % evaluate_interval == 0 or global_step == 100 or global_step == 500:
-            if  global_step % 6000==0 or global_step == 100 or global_step == 500: #6000 for bs=8 #3000 for bs=16
+            if  global_step % evaluate_interval == 0 or global_step == 100 or global_step == 500:
+            # if  global_step % 6000==0 or global_step == 100 or global_step == 500: #6000 for bs=8 #3000 for bs=16
                 with torch.no_grad():
                     evaluate(model, val_data_loader)
             prog_bar.set_description('epoch: %d step: %d running_warp_loss: %.4f running_gen_loss: %.4f' \
