@@ -30,8 +30,8 @@ args=parser.parse_args()
 #other parameters
 num_workers = 20
 Project_name = 'conv3_render_B80_1'#'trans_render_B8_plan1' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
-finetune_path =None
-# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_lowdim_render_B8_plan3/lowdim_render_B8_plan3_epoch_8_checkpoint_step000048000.pth'
+# finetune_path =None
+finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_22_checkpoint_step000012000.pth'
 # finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_39_checkpoint_step000021000.pth'
 ref_N = 3
 T = 1
