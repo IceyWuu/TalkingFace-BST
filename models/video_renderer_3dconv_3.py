@@ -74,7 +74,7 @@ class SPADELayer(torch.nn.Module):
 # encoder decoder
     def forward(self, input, modulation):
         norm = self.instance_norm(input)
-
+# input b,256,4096 key///听错了？
         conv_out = self.conv1(modulation) # b256,64,64 -> b,256,4096
 
         gamma = self.gamma(conv_out)
@@ -198,23 +198,26 @@ def warping(source_image, deformation):
     return torch.nn.functional.grid_sample(source_image, deformation) # 对输入图像进行变形，利用形变张量中的信息进行像素插值，得到输出的变形后的图像
 
 
-class DenseFlowNetwork(torch.nn.Module): # um_channel_modulation=3*5
-    def __init__(self, num_channel=6, num_channel_modulation=32, hidden_size=256):
+class DenseFlowNetwork(torch.nn.Module):
+    def __init__(self, num_channel=6, num_channel_modulation=3*5, hidden_size=256):
         super(DenseFlowNetwork, self).__init__()
 
         # Convolutional Layers
-        self.conv1 = torch.nn.Conv2d(num_channel, 32, kernel_size=7, stride=1, padding=3)
-        self.conv1_bn = torch.nn.BatchNorm2d(num_features=32, affine=True) # Icey: C from an expected input of size (N,C,H,W), output shape = input
+        self.conv1 = torch.nn.Conv2d(16, 3, kernel_size=3, stride=1, padding=1)
+        self.conv1_bn = torch.nn.BatchNorm2d(num_features=3, affine=True) # Icey: C from an expected input of size (N,C,H,W), output shape = input
         self.conv1_relu = torch.nn.ReLU()
 
         self.conv2 = torch.nn.Conv2d(32, 256, kernel_size=3, stride=2, padding=1)
         self.conv2_bn = torch.nn.BatchNorm2d(num_features=256, affine=True)
         self.conv2_relu = torch.nn.ReLU()
 
-        # add conv3d
-        self.conv1_3d = torch.nn.Conv3d(in_channels=3, out_channels=32, kernel_size=(11,7,7), stride=1, padding=3, bias=False)
-        self.conv1_3d_bn = torch.nn.BatchNorm3d(num_features=32, affine=True)
-        self.conv1_3d_relu = torch.nn.ReLU()
+        self.conv1_3d1 = torch.nn.Conv3d(in_channels=3, out_channels=16, kernel_size=(9,7,7), stride=1, padding=3, bias=False)
+        self.conv1_3d1_bn = torch.nn.BatchNorm3d(num_features=16, affine=True)
+        self.conv1_3d1_relu = torch.nn.ReLU()
+
+        self.conv1_3d2 = torch.nn.Conv3d(in_channels=3, out_channels=16, kernel_size=(9,7,7), stride=1, padding=3, bias=False)
+        self.conv1_3d2_bn = torch.nn.BatchNorm3d(num_features=16, affine=True)
+        self.conv1_3d2_relu = torch.nn.ReLU()
 
         # SPADE Blocks
         self.spade_layer_1 = SPADE(256, num_channel_modulation, hidden_size)
@@ -234,61 +237,96 @@ class DenseFlowNetwork(torch.nn.Module): # um_channel_modulation=3*5
                    #   (B, N, 3, H, W)(B, N, 3, H, W)    (B, 5, 3, H, W)  #
         ref_N = ref_N_frame_img.size(1)
 
-        # driving_sketch=torch.cat([T_driving_sketch[:,i] for i in range(T_driving_sketch.size(1))], dim=1)  #(B, 3*5, H, W)
+        driving_sketch=torch.cat([T_driving_sketch[:,i] for i in range(T_driving_sketch.size(1))], dim=1)  #(B, 3*5, H, W)
+
+        wrapped_h1_sum, wrapped_h2_sum, wrapped_ref_sum=0.,0.,0.
+        # softmax_denominator=0.
+        # T = 1  # during rendering, generate T=1 image  at a time
 
         # add
-        driving_sketch = T_driving_sketch.permute(0,2,1,3,4)     # (B, 3, 5, 128, 128)
-        driving_sketch = self.conv1_3d_relu(self.conv1_3d_bn(self.conv1_3d(driving_sketch))) # (B, 32, 1, 128, 128)
-        driving_sketch = torch.squeeze(driving_sketch, dim=2) # (B, 32, 128, 128)
-        
-        wrapped_h1_sum, wrapped_h2_sum, wrapped_ref_sum=0.,0.,0.
-        softmax_denominator=0.
-        T = 1  # during rendering, generate T=1 image  at a time
-        for ref_idx in range(ref_N): # each ref img provide information for each B*T frame # 选择N帧中的1帧
-            ref_img= ref_N_frame_img[:, ref_idx]  #(B, 3, H, W)
-            ref_img = ref_img.unsqueeze(1).expand(-1, T, -1, -1, -1)  # (B,T, 3, H, W) # -1 表示保持该维度的原始大小
-            ref_img = torch.cat([ref_img[i] for i in range(ref_img.size(0))], dim=0)  # (B*T, 3, H, W)
+        ref_N_frame_img = ref_N_frame_img.permute(0,2,1,3,4) #(B, 3, N, H, W)
+        ref_N_frame_sketch = ref_N_frame_sketch.permute(0,2,1,3,4) #(B, 3, N, H, W)
 
-            ref_sketch = ref_N_frame_sketch[:, ref_idx] #(B, 3, H, W)
-            ref_sketch = ref_sketch.unsqueeze(1).expand(-1, T, -1, -1, -1)  # (B,T, 3, H, W)
-            ref_sketch = torch.cat([ref_sketch[i] for i in range(ref_sketch.size(0))], dim=0)  # (B*T, 3, H, W)
+        x_ref_img = self.conv1_3d1_relu(self.conv1_3d1_bn(self.conv1_3d1(ref_N_frame_img)))# #(B,16,1,128,128)
+        x_ref_sk = self.conv1_3d2_relu(self.conv1_3d2_bn(self.conv1_3d2(ref_N_frame_sketch)))# #(B,16,1,128,128)
 
-            #predict flow and weight
-            flow_module_input = torch.cat((ref_img, ref_sketch), dim=1)  #(B*T, 3+3, H, W)
-            # Convolutional Layers
-            h1 = self.conv1_relu(self.conv1_bn(self.conv1(flow_module_input)))   #(32,128,128)
-            h2 = self.conv2_relu(self.conv2_bn(self.conv2(h1)))    #(256,64,64)
-            # SPADE Blocks
-            downsample_64 = downsample(driving_sketch, (64, 64))
-            # 将 driving_sketch 下采样到了h2一样
+        x_ref_img = torch.squeeze(x_ref_img, dim=2) # (B, 16, 128, 128)
+        x_ref_sk = torch.squeeze(x_ref_sk, dim=2) # (B, 16, 128, 128)
+        # 拼起来
+        h1 = torch.cat([x_ref_img, x_ref_sk], dim=1) # (B,32,128,128)
+        h2 = self.conv2_relu(self.conv2_bn(self.conv2(h1)))    #(256,64,64)
 
-            # Icey B*T
-            spade_layer = self.spade_layer_1(h2, downsample_64)  #(256,64,64)
-            spade_layer = self.spade_layer_2(spade_layer, downsample_64)   #(256,64,64)
+        downsample_64 = downsample(driving_sketch, (64, 64))
 
-            spade_layer = self.pixel_shuffle_1(spade_layer)   #(64,128,128)
+        spade_layer = self.spade_layer_1(h2, downsample_64)  #(256,64,64)
+        spade_layer = self.spade_layer_2(spade_layer, downsample_64)   #(256,64,64)
 
-            spade_layer = self.spade_layer_4(spade_layer, driving_sketch)    #(64,128,128)
+        spade_layer = self.pixel_shuffle_1(spade_layer)   #(64,128,128)
 
-            # Final Convolutional Layer
-            output_flow = self.conv_4(spade_layer)      #   (B*T,2,128,128)
-            output_weight=self.conv_5(spade_layer)       #  (B*T,1,128,128)
+        spade_layer = self.spade_layer_4(spade_layer, driving_sketch)    #(64,128,128)
 
-            deformation=convert_flow_to_deformation(output_flow)
-            wrapped_h1 = warping(h1, deformation)  #(32,128,128)
-            wrapped_h2 = warping(h2, deformation)   #(256,64,64)
-            wrapped_ref = warping(ref_img, deformation)  #(3,128,128)
+        # Final Convolutional Layer
+        output_flow = self.conv_4(spade_layer)      #   (B*T,2,128,128)
+        output_weight=self.conv_5(spade_layer)       #  (B*T,1,128,128)
 
-            softmax_denominator+=output_weight
-            wrapped_h1_sum+=wrapped_h1*output_weight
-            wrapped_h2_sum+=wrapped_h2*downsample(output_weight, (64,64))
-            wrapped_ref_sum+=wrapped_ref*output_weight
+        deformation=convert_flow_to_deformation(output_flow)
+        wrapped_h1 = warping(h1, deformation)  #(32,128,128)
+        wrapped_h2 = warping(h2, deformation)   #(256,64,64)
+        x_ref_img = self.conv1_relu(self.conv1_bn(self.conv1(x_ref_img)))# #(B,16,1,128,128)
+        wrapped_ref = warping(x_ref_img, deformation)  #(3,128,128)
+
+        wrapped_h1_sum+=wrapped_h1*output_weight
+        wrapped_h2_sum+=wrapped_h2*downsample(output_weight, (64,64))
+        wrapped_ref_sum+=wrapped_ref*output_weight
+
         #return weighted warped feataure and images
-        softmax_denominator+=0.00001
-        wrapped_h1_sum=wrapped_h1_sum/softmax_denominator
-        wrapped_h2_sum = wrapped_h2_sum / downsample(softmax_denominator, (64,64))
-        wrapped_ref_sum = wrapped_ref_sum / softmax_denominator
         return wrapped_h1_sum, wrapped_h2_sum, wrapped_ref_sum
+
+        # for ref_idx in range(ref_N): # each ref img provide information for each B*T frame # 选择N帧中的1帧
+        #     ref_img= ref_N_frame_img[:, ref_idx]  #(B, 3, H, W)
+        #     ref_img = ref_img.unsqueeze(1).expand(-1, T, -1, -1, -1)  # (B,T, 3, H, W) # -1 表示保持该维度的原始大小
+        #     ref_img = torch.cat([ref_img[i] for i in range(ref_img.size(0))], dim=0)  # (B*T, 3, H, W)
+
+        #     ref_sketch = ref_N_frame_sketch[:, ref_idx] #(B, 3, H, W)
+        #     ref_sketch = ref_sketch.unsqueeze(1).expand(-1, T, -1, -1, -1)  # (B,T, 3, H, W)
+        #     ref_sketch = torch.cat([ref_sketch[i] for i in range(ref_sketch.size(0))], dim=0)  # (B*T, 3, H, W)
+
+        #     #predict flow and weight
+        #     flow_module_input = torch.cat((ref_img, ref_sketch), dim=1)  #(B*T, 3+3, H, W)
+        #     # Convolutional Layers
+        #     h1 = self.conv1_relu(self.conv1_bn(self.conv1(flow_module_input)))   #(32,128,128)
+        #     h2 = self.conv2_relu(self.conv2_bn(self.conv2(h1)))    #(256,64,64)
+        #     # SPADE Blocks
+        #     downsample_64 = downsample(driving_sketch, (64, 64))   # driving_sketch:(B*T, 3, H, W)
+        #     # 将 driving_sketch 下采样到了 (64, 64) 的大小，大小为 (B*T, 3, 64, 64)，和h2一样
+
+        #     # Icey B*T
+        #     spade_layer = self.spade_layer_1(h2, downsample_64)  #(256,64,64)
+        #     spade_layer = self.spade_layer_2(spade_layer, downsample_64)   #(256,64,64)
+
+        #     spade_layer = self.pixel_shuffle_1(spade_layer)   #(64,128,128)
+
+        #     spade_layer = self.spade_layer_4(spade_layer, driving_sketch)    #(64,128,128)
+
+        #     # Final Convolutional Layer
+        #     output_flow = self.conv_4(spade_layer)      #   (B*T,2,128,128)
+        #     output_weight=self.conv_5(spade_layer)       #  (B*T,1,128,128)
+
+        #     deformation=convert_flow_to_deformation(output_flow)
+        #     wrapped_h1 = warping(h1, deformation)  #(32,128,128)
+        #     wrapped_h2 = warping(h2, deformation)   #(256,64,64)
+        #     wrapped_ref = warping(ref_img, deformation)  #(3,128,128)
+
+        #     softmax_denominator+=output_weight
+        #     wrapped_h1_sum+=wrapped_h1*output_weight
+        #     wrapped_h2_sum+=wrapped_h2*downsample(output_weight, (64,64))
+        #     wrapped_ref_sum+=wrapped_ref*output_weight
+        # #return weighted warped feataure and images
+        # softmax_denominator+=0.00001
+        # wrapped_h1_sum=wrapped_h1_sum/softmax_denominator
+        # wrapped_h2_sum = wrapped_h2_sum / downsample(softmax_denominator, (64,64))
+        # wrapped_ref_sum = wrapped_ref_sum / softmax_denominator
+        # return wrapped_h1_sum, wrapped_h2_sum, wrapped_ref_sum
 
 
 class TranslationNetwork(torch.nn.Module):
@@ -335,7 +373,7 @@ class TranslationNetwork(torch.nn.Module):
         self.spade_2 = SPADE(num_channel=64, num_channel_modulation=32)
         self.adain_2 = AdaIN(input_channel=64,modulation_channel=512)
 
-        self.spade_4 = SPADE(num_channel=64, num_channel_modulation=3)
+        self.spade_4 = SPADE(num_channel=64, num_channel_modulation=3) # 原来是3
 
         # Final layer
         self.leaky_relu = torch.nn.LeakyReLU()

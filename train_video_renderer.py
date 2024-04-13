@@ -15,7 +15,7 @@ from piq.feature_extractors import InceptionV3
 from models import define_D
 from loss import GANLoss
 # from models.video_renderer import Renderer 
-from models.video_renderer_3dconv_1 import Renderer  
+from models.video_renderer_3dconv_3 import Renderer  
 # from models.icey_video_renderer_plan3 import Renderer  
 import argparse
 import csv
@@ -29,9 +29,9 @@ parser.add_argument('--audio_root',default='/data/wuyubing/TalkingFace-BST/prepr
 args=parser.parse_args()
 #other parameters
 num_workers = 20
-Project_name = 'conv3_render_B80_1'#'trans_render_B8_plan1' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
-# finetune_path =None
-finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_22_checkpoint_step000012000.pth'
+Project_name = 'conv3_render_B64_3'#'trans_render_B8_plan1' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
+finetune_path =None
+# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_22_checkpoint_step000012000.pth'
 # finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_39_checkpoint_step000021000.pth'
 ref_N = 3
 T = 1

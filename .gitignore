@@ -13,6 +13,8 @@
 /tmp
 /.vscode
 /preprocess_result.tar.gz
+/tensorboard_runs.tar.gz
+
 
 
 # Byte-compiled / optimized / DLL files
