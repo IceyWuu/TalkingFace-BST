@@ -14,8 +14,8 @@ import face_alignment
 from piq.feature_extractors import InceptionV3
 from models import define_D
 from loss import GANLoss
-# from models.video_renderer import Renderer 
-from models.video_renderer_3dconv_3 import Renderer  
+from models.video_renderer import Renderer 
+from models.video_renderer_3dconv_3_2d import Renderer  
 # from models.icey_video_renderer_plan3 import Renderer  
 import argparse
 import csv
@@ -29,15 +29,15 @@ parser.add_argument('--audio_root',default='/data/wuyubing/TalkingFace-BST/prepr
 args=parser.parse_args()
 #other parameters
 num_workers = 20
-Project_name = 'conv3_render_B64_3'#'trans_render_B8_plan1' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
+Project_name = 'conv3_render_B64_3_2d'#'trans_render_B8_plan1' #'ori_render_B80_c' # 'trans_render_B80'   #Project_name
 finetune_path =None
-# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_22_checkpoint_step000012000.pth'
+# finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_96_checkpoint_step000052500.pth'
 # finetune_path = '/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_39_checkpoint_step000021000.pth'
 ref_N = 3
 T = 1
 print('Project_name:', Project_name)
-batch_size = 80#80#96       #### batch_size #能被4整除，在每张卡上的batch才是一样的
-batch_size_val = 80#80#96    #### batch_size
+batch_size = 64#80#96       #### batch_size #能被4整除，在每张卡上的batch才是一样的
+batch_size_val = 64#80#96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -297,6 +297,7 @@ def evaluate(model, val_data_loader):
     psnr, ssim, fid= np.asarray(psnrs).mean(), np.asarray(ssims).mean(), np.asarray(fids).mean()
     print('psnr %.3f ssim %.3f fid %.3f' % (psnr, ssim, fid))
     # write the data
+    print("count", count)
     with open('./checkpoints/renderer/metric.csv', 'a', encoding='UTF8', newline='') as f:
         data = [global_epoch,psnr,ssim,fid,eval_warp_loss / count,eval_gen_loss / count, global_step]
         writer_csv = csv.writer(f)

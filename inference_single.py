@@ -246,6 +246,8 @@ while 1:
     mel_chunks.append(mel[:, start_idx: start_idx + mel_step_size])  # mel for generate one video frame
     mel_chunk_idx += 1
 # mel_chunks = mel_chunks[:(len(mel_chunks) // T) * T]
+# 每个mel_chunk都是包含T帧的图片的音频，第0个包含帧（0，1，2，3，4），第1个包含帧（1，2，3，4，5）
+# 每右移动一个帧的音频，为一个新的mel_chunk
 
 ##(3) detect facial landmarks using mediapipe tool
 boxes = []  #bounding boxes of human face
@@ -437,7 +439,7 @@ input_frame_sequence = input_frame_sequence + list(reversed(input_frame_sequence
 input_frame_sequence=input_frame_sequence*((num_of_repeat+1)//2) # input_frame_sequence * 2 表示序列重复两次
 
 # Icey batch_idx, batch_start_idx:在每次迭代中，batch_idx将保存当前批处理的索引，batch_start_idx将保存当前批处理的起始索引。
-# batch是mel_batch
+# batch是mel_batch，每个batch只推理1帧
 for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len - 2, 1)), # 1 个chunk是5帧，16个mel
                                        total=len(range(0, input_mel_chunks_len - 2, 1))):
     T_input_frame, T_ori_face_coordinates = [], []
@@ -448,6 +450,9 @@ for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len -
     for mel_chunk_idx in range(batch_start_idx, batch_start_idx + T):  # for each T frame
         # 1 input audio
         T_mel_batch.append(mel_chunks[max(0, mel_chunk_idx - 2)]) # 一共T个chunk，每个chunk可覆盖5张要生成的图
+        # 每右移动一个帧的音频，为一个新的mel_chunk，从第0个chunk开始
+        # 所以要第3个帧所用的音频信息，是mel_chunk_idx - 2，也就是第0个mel_chunk
+        # 第1，2帧，都是采用第3帧推断出来的图片，前3帧是一模一样的
 
         # 2.input face
         input_frame_idx = int(input_frame_sequence[mel_chunk_idx])
@@ -517,7 +522,7 @@ for batch_idx, batch_start_idx in tqdm(enumerate(range(0, input_mel_chunks_len -
     # 6.output
     full = np.concatenate([show_sketch, full], axis=1)
     out_stream.write(full)
-    if batch_idx == 0:
+    if batch_idx == 0: # 如果是第一个batch，同1帧多写入了2次
         out_stream.write(full)
         out_stream.write(full)
 out_stream.release()

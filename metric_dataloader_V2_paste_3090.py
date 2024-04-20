@@ -14,7 +14,7 @@ import face_alignment
 from piq.feature_extractors import InceptionV3
 # from models import define_D
 # from loss import GANLoss
-from models.video_renderer import Renderer 
+from models import Renderer 
 from models.landmark_generator import Landmark_generator as Landmark_transformer 
 # from models.icey_landmark_generator import Landmark_generator as Landmark_transformer 
 import mediapipe as mp
@@ -23,30 +23,27 @@ from draw_landmark import draw_landmarks
 from src.arcface_torch.backbones import get_model
 import argparse
 parser=argparse.ArgumentParser()
-####################整张脸融合进去####################
 parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
-                    default='/data/wuyubing/TalkingFace-BST/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
+                    default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
 
 # parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
 #                     default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/decoder_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
-parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/test/checkpoints/ori_render_B80_epoch_93_checkpoint_step000049500.pth')
-# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_92_checkpoint_step000049500.pth')
-
-parser.add_argument('--sketch_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
+                    
+parser.add_argument('--sketch_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
                     help='root path for sketches') # Icey',required=True'
-parser.add_argument('--face_img_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
+parser.add_argument('--face_img_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
                     help='root path for face frame images') # Icey',required=True'
-parser.add_argument('--audio_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
+parser.add_argument('--audio_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
                     help='root path for audio mel') # Icey',required=True'
-parser.add_argument('--landmarks_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
+parser.add_argument('--landmarks_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
                     help='root path for preprocessed  landmarks')
-parser.add_argument('--ori_face_frame_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_ori_frames', # Icey default='...../Dataset/lrs2_landmarks'
+parser.add_argument('--ori_face_frame_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_ori_frames', # Icey default='...../Dataset/lrs2_landmarks'
                     help='root path for preprocessed  landmarks')
 #parser.add_argument('--landmark_gen_checkpoint_path', type=str, default='./test/checkpoints/landmarkgenerator_checkpoint.pth')
-# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
+parser.add_argument('--renderer_checkpoint_path', type=str, default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
 # parser.add_argument('--static', type=bool, help='whether only use  the first frame for inference', default=False)
 # parser.add_argument("--data_root", type=str,help="Root folder of the LRS2 dataset", default='/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main')
-parser.add_argument('--output_dir', type=str, default='./test_result/conv3d')
+parser.add_argument('--output_dir', type=str, default='./test_result/batch_video')
 args=parser.parse_args()
 
 temp_dir = 'tempfile_of_{}'.format(args.output_dir.split('/')[-1])
@@ -63,14 +60,14 @@ mp_face_mesh = mp.solutions.face_mesh
 drawing_spec = mp.solutions.drawing_utils.DrawingSpec(thickness=1, circle_radius=1)
 #other parameters
 num_workers = 20
-Project_name = 'ori_epo92_49500'   #Project_name
+Project_name = 'batch_inference'   #Project_name
 # finetune_path =None
 Nl = 15 # Icey 参考图像的landmark，参考图像的数量
 ref_N = 25 # 3 # Icey 参考图片，渲染部分
 T = 5 # 1 # Icey 推理时每个batch取的帧数
 print('Project_name:', Project_name)
 # batch_size = 80 # Icey 96       #### batch_size
-batch_size_val = 64 # 80 # Icey 96    #### batch_size
+batch_size_val = 80 # 80 # Icey 96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -745,7 +742,7 @@ def evaluate(ren_model, lmk_model, val_data_loader):
     writer.add_scalar('liplmd', liplmd)
     writer.add_scalar('csim', csim)
     # writer.add_scalar('eval_warp_loss', eval_warp_loss / count, global_step)
-    writer.add_scalar('eval_gen_loss-vgg19', eval_gen_loss / (count * gt.size(0)))
+    writer.add_scalar('eval_gen_loss-vgg19↓', eval_gen_loss / (count * gt.size(0)))
     # print('eval_warp_loss :', eval_warp_loss / count,'eval_gen_loss', eval_gen_loss / count,'global_step:', global_step)
     
 
@@ -803,4 +800,3 @@ if __name__ == '__main__':
         
 
 print("end")
-

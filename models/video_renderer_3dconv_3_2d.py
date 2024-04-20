@@ -74,7 +74,7 @@ class SPADELayer(torch.nn.Module):
 # encoder decoder
     def forward(self, input, modulation):
         norm = self.instance_norm(input)
-
+# input b,256,4096 key///听错了？
         conv_out = self.conv1(modulation) # b256,64,64 -> b,256,4096
 
         gamma = self.gamma(conv_out)
@@ -198,8 +198,8 @@ def warping(source_image, deformation):
     return torch.nn.functional.grid_sample(source_image, deformation) # 对输入图像进行变形，利用形变张量中的信息进行像素插值，得到输出的变形后的图像
 
 
-class DenseFlowNetwork(torch.nn.Module): # num_channel_modulation=3*5
-    def __init__(self, num_channel=6, num_channel_modulation=15, hidden_size=256):
+class DenseFlowNetwork(torch.nn.Module): # num_channel=6, num_channel_modulation=3*5
+    def __init__(self, num_channel=24, num_channel_modulation=3*5, hidden_size=256):
         super(DenseFlowNetwork, self).__init__()
 
         # Convolutional Layers
@@ -211,10 +211,6 @@ class DenseFlowNetwork(torch.nn.Module): # num_channel_modulation=3*5
         self.conv2_bn = torch.nn.BatchNorm2d(num_features=256, affine=True)
         self.conv2_relu = torch.nn.ReLU()
 
-        # add conv3d
-        self.conv1_3d = torch.nn.Conv3d(in_channels=3, out_channels=15, kernel_size=(7,3,3), stride=1, padding=1, bias=False)
-        self.conv1_3d_bn = torch.nn.BatchNorm3d(num_features=15, affine=True)
-        self.conv1_3d_relu = torch.nn.ReLU()
 
         # SPADE Blocks
         self.spade_layer_1 = SPADE(256, num_channel_modulation, hidden_size)
@@ -230,17 +226,18 @@ class DenseFlowNetwork(torch.nn.Module): # num_channel_modulation=3*5
                                    torch.nn.Sigmoid(),
                                    )#predict weight
 
-    def forward(self, ref_N_frame_img, ref_N_frame_sketch, T_driving_sketch): #to output: (B*T,3,H,W)
-                   #   (B, N, 3, H, W)(B, N, 3, H, W)    (B, 5, 3, H, W)  #
+    def forward(self, ref_N_frame_img, ref_N_frame_sketch, T_driving_sketch, translation_input): #to output: (B*T,3,H,W)
+                   #   (B, N, 3, H, W)(B, N, 3, H, W)    (B, 5*3, H, W)  # (B, 3+3*5, H, W)
         ref_N = ref_N_frame_img.size(1)
 
-        # driving_sketch=torch.cat([T_driving_sketch[:,i] for i in range(T_driving_sketch.size(1))], dim=1)  #(B, 3*5, H, W)
+        driving_sketch = T_driving_sketch  #(B, 3*5, H, W)
+       
+        # 把renderer里concate的图片拆出来 (B,3,H,W)(B,3*5,H,W)
+        gt_mask_face_split = translation_input[:, :3, :, :]  # 获取前面的3通道作为gt_mask_face
+        target_sketches_split = translation_input[:, 3:, :, :]  # 获取后面的3*5通道作为target_sketches
+        # gt_mask_face_split = gt_mask_face_split.unsqueeze(1).expand(-1, 1, -1, -1, -1) # (B,1,3,H,W)
+        # target_sketches_split = target_sketches_split.unsqueeze(1).expand(-1, 1, -1, -1, -1) # (B,1,3*5,H,W)
 
-        # add
-        driving_sketch = T_driving_sketch.permute(0,2,1,3,4)     # (B, 3, 5, 128, 128)
-        driving_sketch = self.conv1_3d_relu(self.conv1_3d_bn(self.conv1_3d(driving_sketch))) # (B, 32, 1, 128, 128)
-        driving_sketch = torch.squeeze(driving_sketch, dim=2) # (B, 32, 128, 128)
-        
         wrapped_h1_sum, wrapped_h2_sum, wrapped_ref_sum=0.,0.,0.
         softmax_denominator=0.
         T = 1  # during rendering, generate T=1 image  at a time
@@ -254,13 +251,14 @@ class DenseFlowNetwork(torch.nn.Module): # num_channel_modulation=3*5
             ref_sketch = torch.cat([ref_sketch[i] for i in range(ref_sketch.size(0))], dim=0)  # (B*T, 3, H, W)
 
             #predict flow and weight
-            flow_module_input = torch.cat((ref_img, ref_sketch), dim=1)  #(B*T, 3+3, H, W)
+            flow_module_input = torch.cat((ref_img, ref_sketch,gt_mask_face_split,target_sketches_split), dim=1)  #(B*T, 3+3 +3+3*5, H, W)
             # Convolutional Layers
             h1 = self.conv1_relu(self.conv1_bn(self.conv1(flow_module_input)))   #(32,128,128)
             h2 = self.conv2_relu(self.conv2_bn(self.conv2(h1)))    #(256,64,64)
             # SPADE Blocks
-            downsample_64 = downsample(driving_sketch, (64, 64))
-            # 将 driving_sketch 下采样到了h2一样
+            #print("driving_sketch",driving_sketch.size())
+            downsample_64 = downsample(driving_sketch, (64, 64))   # driving_sketch:(B*T, 3, H, W)
+            # 将 driving_sketch 下采样到了 (64, 64) 的大小，大小为 (B*T, 3, 64, 64)，和h2一样
 
             # Icey B*T
             spade_layer = self.spade_layer_1(h2, downsample_64)  #(256,64,64)
@@ -396,9 +394,7 @@ class Renderer(torch.nn.Module):
 
     def forward(self, face_frame_img, target_sketches, ref_N_frame_img, ref_N_frame_sketch, audio_mels): #T=1
         #            (B,1,3,H,W)   (B,5,3,H,W)       (B,N,3,H,W)   (B,N,3,H,W)  (B,T,1,hv,wv)T=1
-        # (1)warping reference images and their feature
-        wrapped_h1, wrapped_h2, wrapped_ref = self.flow_module(ref_N_frame_img, ref_N_frame_sketch, target_sketches)
-        #(B,C,H,W)
+        
 
         # (2)translation module
         target_sketches = torch.cat([target_sketches[:, i] for i in range(target_sketches.size(1))], dim=1)
@@ -410,6 +406,10 @@ class Renderer(torch.nn.Module):
         #
         translation_input=torch.cat([gt_mask_face, target_sketches], dim=1) #  (B*T,3+3,H,W) #Icey (B,3+3*5,H,W)
         
+        # (1)warping reference images and their feature
+        wrapped_h1, wrapped_h2, wrapped_ref = self.flow_module(ref_N_frame_img, ref_N_frame_sketch, target_sketches, translation_input)
+        #(B,C,H,W)
+
         generated_face = self.translation(translation_input, wrapped_ref, wrapped_h1, wrapped_h2, audio_mels) #translation_input
 
         perceptual_gen_loss = self.perceptual(generated_face, gt_face, use_style_loss=True,

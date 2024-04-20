@@ -7,6 +7,7 @@
 /src/arcface_torch/checkpoints
 /tempfile_of_batch_video
 /tempfile_of_test_result
+/tempfile_of*
 /tensorboard_runs
 /test/checkpoints/*.pth
 /test_result

@@ -266,13 +266,13 @@ class DenseFlowNetwork(torch.nn.Module):
         spade_layer = self.spade_layer_4(spade_layer, driving_sketch)    #(64,128,128)
 
         # Final Convolutional Layer
-        output_flow = self.conv_4(spade_layer)      #   (B*T,2,128,128)
+        output_flow = self.conv_4(spade_layer)       #   (B*T,2,128,128)
         output_weight=self.conv_5(spade_layer)       #  (B*T,1,128,128)
 
         deformation=convert_flow_to_deformation(output_flow)
         wrapped_h1 = warping(h1, deformation)  #(32,128,128)
         wrapped_h2 = warping(h2, deformation)   #(256,64,64)
-        x_ref_img = self.conv1_relu(self.conv1_bn(self.conv1(x_ref_img)))# #(B,16,1,128,128)
+        x_ref_img = self.conv1_relu(self.conv1_bn(self.conv1(x_ref_img)))# #(B,3,128,128)
         wrapped_ref = warping(x_ref_img, deformation)  #(3,128,128)
 
         wrapped_h1_sum+=wrapped_h1*output_weight

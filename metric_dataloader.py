@@ -14,9 +14,10 @@ import face_alignment
 from piq.feature_extractors import InceptionV3
 # from models import define_D
 # from loss import GANLoss
-from models import Renderer 
+# from models.video_renderer import Renderer 
+from models.video_renderer import Renderer 
 # from models.landmark_generator import Landmark_generator as Landmark_transformer 
-from models.icey_landmark_generator import Landmark_generator as Landmark_transformer 
+from models.landmark_generator import Landmark_generator as Landmark_transformer 
 import mediapipe as mp
 import subprocess
 from draw_landmark import draw_landmarks
@@ -24,24 +25,28 @@ from src.arcface_torch.backbones import get_model
 import argparse
 parser=argparse.ArgumentParser()
 parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
-                    default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/decoder_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
+                    default='/data/wuyubing/TalkingFace-BST/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
 
 # parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
-#                     default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
+#                     default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/decoder_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
+# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_93_checkpoint_step000049500.pth')
+parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_93_checkpoint_step000049500.pth')
 
-parser.add_argument('--sketch_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
+parser.add_argument('--sketch_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
                     help='root path for sketches') # Icey',required=True'
-parser.add_argument('--face_img_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
+parser.add_argument('--face_img_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
                     help='root path for face frame images') # Icey',required=True'
-parser.add_argument('--audio_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
+parser.add_argument('--audio_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
                     help='root path for audio mel') # Icey',required=True'
-parser.add_argument('--landmarks_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
+parser.add_argument('--landmarks_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
+                    help='root path for preprocessed  landmarks')
+parser.add_argument('--ori_face_frame_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_ori_frames', # Icey default='...../Dataset/lrs2_landmarks'
                     help='root path for preprocessed  landmarks')
 #parser.add_argument('--landmark_gen_checkpoint_path', type=str, default='./test/checkpoints/landmarkgenerator_checkpoint.pth')
-parser.add_argument('--renderer_checkpoint_path', type=str, default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
+# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
 # parser.add_argument('--static', type=bool, help='whether only use  the first frame for inference', default=False)
 # parser.add_argument("--data_root", type=str,help="Root folder of the LRS2 dataset", default='/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main')
-parser.add_argument('--output_dir', type=str, default='./test_result/batch_video')
+parser.add_argument('--output_dir', type=str, default='./test_result/ori')
 args=parser.parse_args()
 
 temp_dir = 'tempfile_of_{}'.format(args.output_dir.split('/')[-1])
@@ -57,14 +62,14 @@ mp_face_mesh = mp.solutions.face_mesh
 drawing_spec = mp.solutions.drawing_utils.DrawingSpec(thickness=1, circle_radius=1)
 #other parameters
 num_workers = 20
-Project_name = 'batch_inference'   #Project_name
+Project_name = 'ori_epo93_49500'   #Project_name
 # finetune_path =None
 Nl = 15 # Icey 参考图像的landmark，参考图像的数量
 ref_N = 25 # 3 # Icey 参考图片，渲染部分
 T = 5 # 1 # Icey 推理时每个batch取的帧数
 print('Project_name:', Project_name)
 # batch_size = 80 # Icey 96       #### batch_size
-batch_size_val = 30 # 80 # Icey 96    #### batch_size
+batch_size_val = 42 # 80 # Icey 96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -426,7 +431,7 @@ def csim(gt,fake_image, weight = './src/arcface_torch/checkpoints/ms1mv3_arcface
     # 生成、真值
     if fake_image is None:
         raise ValueError('the input generated image does not exist')
-        fake_image = np.random.randint(0, 255, size=(112, 112, 3), dtype=np.uint8)
+        # fake_image = np.random.randint(0, 255, size=(112, 112, 3), dtype=np.uint8)
     else:
         # fake_image: torch.Size([3, 128, 128])
         # fake_image = cv2.imread(fake_image)
@@ -435,29 +440,31 @@ def csim(gt,fake_image, weight = './src/arcface_torch/checkpoints/ms1mv3_arcface
     
     if gt is None:
         raise ValueError('the input ground truth image does not exist')
-        gt = np.random.randint(0, 255, size=(112, 112, 3), dtype=np.uint8)
+        # gt = np.random.randint(0, 255, size=(112, 112, 3), dtype=np.uint8)
     else:
         # gt = cv2.imread(gt)
         gt = (gt.permute(1,2,0).cpu().numpy()*255).astype(np.uint8)
         gt = cv2.resize(gt, (112, 112))
 
+    net = get_model(name, fp16=False)
+    net.load_state_dict(torch.load(weight))
+    net = net.to(device)
+    net.eval()
+
     fake_image = cv2.cvtColor(fake_image, cv2.COLOR_BGR2RGB)
     fake_image = np.transpose(fake_image, (2, 0, 1))
     fake_image = torch.from_numpy(fake_image).unsqueeze(0).float()
-    fake_image.div_(255).sub_(0.5).div_(0.5)
-    net = get_model(name, fp16=False)
-    net.load_state_dict(torch.load(weight))
-    net.eval()
-    feat_fake = net(fake_image).numpy()
+    fake_image = fake_image.div_(255).sub_(0.5).div_(0.5).cuda()
+    feat_fake = net(fake_image).cpu().numpy()
 
     gt = cv2.cvtColor(gt, cv2.COLOR_BGR2RGB)
     gt = np.transpose(gt, (2, 0, 1))
     gt = torch.from_numpy(gt).unsqueeze(0).float()
-    gt.div_(255).sub_(0.5).div_(0.5)
-    net = get_model(name, fp16=False)
-    net.load_state_dict(torch.load(weight))
-    net.eval()
-    feat_gt = net(gt).numpy()#.T # 转置
+    gt = gt.div_(255).sub_(0.5).div_(0.5).cuda()
+    # net = get_model(name, fp16=False)
+    # net.load_state_dict(torch.load(weight))
+    # net.eval()
+    feat_gt = net(gt).cpu().numpy()#.T # 转置
 
     feat_fake = feat_fake[0]
     feat_gt = feat_gt[0]
@@ -483,7 +490,7 @@ def get_norm_lip_dis(gt_lmk, fake_lmk):
 
 fid_metric = FID()
 feature_extractor = InceptionV3() #.cuda()
-def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96) cuda
+def compute_generation_quality(gt, fake_image):  
     #gt,fake_image torch.Size([5, 3, 128, 128])
     # global global_step
     psnr_values = []
@@ -664,7 +671,7 @@ def evaluate(ren_model, lmk_model, val_data_loader):
     writer.add_scalar('liplmd', liplmd)
     writer.add_scalar('csim', csim)
     # writer.add_scalar('eval_warp_loss', eval_warp_loss / count, global_step)
-    writer.add_scalar('eval_gen_loss-vgg19↓', eval_gen_loss / (count * gt.size(0)))
+    writer.add_scalar('eval_gen_loss-vgg19', eval_gen_loss / (count * gt.size(0)))
     # print('eval_warp_loss :', eval_warp_loss / count,'eval_gen_loss', eval_gen_loss / count,'global_step:', global_step)
 
 if __name__ == '__main__':

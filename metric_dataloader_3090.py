@@ -14,39 +14,34 @@ import face_alignment
 from piq.feature_extractors import InceptionV3
 # from models import define_D
 # from loss import GANLoss
-from models.video_renderer import Renderer 
-from models.landmark_generator import Landmark_generator as Landmark_transformer 
-# from models.icey_landmark_generator import Landmark_generator as Landmark_transformer 
+from models import Renderer 
+# from models.landmark_generator import Landmark_generator as Landmark_transformer 
+from models.icey_landmark_generator import Landmark_generator as Landmark_transformer 
 import mediapipe as mp
 import subprocess
 from draw_landmark import draw_landmarks
 from src.arcface_torch.backbones import get_model
 import argparse
 parser=argparse.ArgumentParser()
-####################整张脸融合进去####################
 parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
-                    default='/data/wuyubing/TalkingFace-BST/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
+                    default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/decoder_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
 
 # parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
-#                     default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/decoder_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
-parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/test/checkpoints/ori_render_B80_epoch_93_checkpoint_step000049500.pth')
-# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_92_checkpoint_step000049500.pth')
+#                     default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
 
-parser.add_argument('--sketch_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
+parser.add_argument('--sketch_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
                     help='root path for sketches') # Icey',required=True'
-parser.add_argument('--face_img_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
+parser.add_argument('--face_img_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_face128',\
                     help='root path for face frame images') # Icey',required=True'
-parser.add_argument('--audio_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
+parser.add_argument('--audio_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio',\
                     help='root path for audio mel') # Icey',required=True'
-parser.add_argument('--landmarks_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
-                    help='root path for preprocessed  landmarks')
-parser.add_argument('--ori_face_frame_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_ori_frames', # Icey default='...../Dataset/lrs2_landmarks'
+parser.add_argument('--landmarks_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
                     help='root path for preprocessed  landmarks')
 #parser.add_argument('--landmark_gen_checkpoint_path', type=str, default='./test/checkpoints/landmarkgenerator_checkpoint.pth')
-# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
+parser.add_argument('--renderer_checkpoint_path', type=str, default='/home/zhenglab/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
 # parser.add_argument('--static', type=bool, help='whether only use  the first frame for inference', default=False)
 # parser.add_argument("--data_root", type=str,help="Root folder of the LRS2 dataset", default='/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main')
-parser.add_argument('--output_dir', type=str, default='./test_result/conv3d')
+parser.add_argument('--output_dir', type=str, default='./test_result/batch_video')
 args=parser.parse_args()
 
 temp_dir = 'tempfile_of_{}'.format(args.output_dir.split('/')[-1])
@@ -54,7 +49,6 @@ temp_dir = 'tempfile_of_{}'.format(args.output_dir.split('/')[-1])
 os.makedirs(temp_dir, exist_ok=True)
 # data_root = args.data_root
 landmark_root=args.landmarks_root
-ori_face_frame_root = args.ori_face_frame_root
 # add checkpoints
 landmark_gen_checkpoint_path = args.landmark_gen_checkpoint_path
 renderer_checkpoint_path =args.renderer_checkpoint_path
@@ -63,14 +57,14 @@ mp_face_mesh = mp.solutions.face_mesh
 drawing_spec = mp.solutions.drawing_utils.DrawingSpec(thickness=1, circle_radius=1)
 #other parameters
 num_workers = 20
-Project_name = 'ori_epo92_49500'   #Project_name
+Project_name = 'batch_inference'   #Project_name
 # finetune_path =None
 Nl = 15 # Icey 参考图像的landmark，参考图像的数量
 ref_N = 25 # 3 # Icey 参考图片，渲染部分
 T = 5 # 1 # Icey 推理时每个batch取的帧数
 print('Project_name:', Project_name)
 # batch_size = 80 # Icey 96       #### batch_size
-batch_size_val = 64 # 80 # Icey 96    #### batch_size
+batch_size_val = 30 # 80 # Icey 96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -90,7 +84,6 @@ audio_root=args.audio_root
 # save_optimizer_state = True
 writer = SummaryWriter('tensorboard_runs/Project_{}'.format(Project_name))
 lip_index = [0, 17]  # the index of the midpoints of the upper lip and lower lip
-fa = face_alignment.FaceAlignment(face_alignment.LandmarksType.TWO_D, flip_input=False, device='cuda') # Icey ._2D
 
 #-------------------------------------------------------------------------------
 # the following is the index sequence for fical landmarks detected by mediapipe
@@ -293,7 +286,7 @@ class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
             T_mels_lmk = torch.FloatTensor(T_mels_lmk).unsqueeze(1)  # (T,1,hv,wv)
             # print("get data for landmark generation")
             #--------------------------data for render---------------------------------------------
-
+            
             # 2. read  face image and sketch
             T_face_paths = [os.path.join(face_img_root, vid_name, str(idx) + '.png') for idx in T_idxs]
             # face_img_paths = list(glob(join(face_img_root, vid_name, '*.png'))) # 随机抽取的视频
@@ -304,14 +297,12 @@ class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
             #-----------获取相应的sketch，可删掉，放到后面出dataloader后由landmark生成器生成-----------
             T_frame_img=[]
             T_frame_sketch_from_pre = []
-            T_ori_face_frame = []
             for img_path in T_face_paths:
-                sketch_path = os.path.join(sketch_root, '/'.join(img_path.split('/')[-3:]))
-                ori_face_frame_path = os.path.join(ori_face_frame_root, '/'.join(img_path.split('/')[-3:]))
+                sketch_path = os.path.join(sketch_root,
+                            '/'.join(img_path.split('/')[-3:]))
                 if os.path.isfile(img_path) and os.path.isfile(sketch_path):
                     T_frame_img.append(cv2.resize(cv2.imread(img_path),(img_size,img_size))) #128 x 128
                     T_frame_sketch_from_pre.append(cv2.imread(sketch_path))
-                    T_ori_face_frame.append(cv2.imread(ori_face_frame_path))
                 else:
                     break
             if len(T_frame_img)!=window_T:  #T (H,W,3)
@@ -357,10 +348,8 @@ class Dataset(object): # Icey 使用DataLoader前，定义自己dataset的写法
             # return T_mels_lmk,    T_pose,   T_content,Nl_pose,Nl_content
             #     (T,1,hv,wv) (T,2,74)  (T,2,57)                         (T,3,H,W)
             return T_mels_lmk,    T_pose,   T_content,Nl_pose,Nl_content, T_frame_img,\
-                T_frame_img[2].unsqueeze(0),T_frame_sketch_from_pre,ref_N_frame_img,ref_N_frame_sketch,T_mels_ren, \
-                T_ori_face_frame[2]
+                T_frame_img[2].unsqueeze(0),T_frame_sketch_from_pre,ref_N_frame_img,ref_N_frame_sketch,T_mels_ren
             #      (1,3,H,W)   (T,3,H,W)       (ref_N,3,H,W)   (ref_N,3,H,W)    (1,1,hv,wv)
-            #      (H,W,3) origin size
 
 class LandmarkDict(dict):# Makes a dictionary that behave like an object to represent each landmark
     def __init__(self, idx, x, y):
@@ -398,6 +387,39 @@ def load_model(model, path):
     model = model.to(device)
     return model.eval()
 
+# T_predit_sketches torch.Size([80, 1, 3, 128, 128])
+def save_sample_images_gen(T_frame_sketch, ref_N_frame_img, generated_img, gt, checkpoint_dir):
+    #                        (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
+    
+    T_each_batch = 1 # 此处会把 generated_img, gt的 B*T 分离，但render阶段T张只会生成 1 帧，故此处 T 要写为1
+
+    # 生成的 1 张图像所用的参考图像
+    ref_N_frame_img = ref_N_frame_img.unsqueeze(1).expand(-1, T_each_batch, -1, -1, -1, -1)  # (B,T,ref_N,3,H,W)
+    ref_N_frame_img = (ref_N_frame_img.cpu().numpy().transpose(0, 1, 2, 4, 5, 3) * 255.).astype(np.uint8)  # ref: (B,T,ref_N,H,W,3)
+
+    fake_image = torch.stack(torch.split(generated_img, T_each_batch, dim=0), dim=0)  #(B,T,3,H,W)
+    fake_image = (fake_image.detach().cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+
+    gt = torch.stack(torch.split(gt, T_each_batch, dim=0), dim=0)  # (B,T,3,H,W)
+    gt = (gt.cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+    
+    # T_frame_sketch torch.Size([80, 5, 3, 128, 128])
+    # [:, 2] 索引操作将选择第二个维度上索引为 2 的元素
+    T_frame_sketch=(T_frame_sketch[:,2].unsqueeze(1).cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+    # T_frame_sketch (80, 1, 128, 128, 3)
+
+    folder = join(checkpoint_dir, "samples")
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+    
+    # T_frame_sketch (80, 1, 128, 128, 3)
+    # * 将列表推导式生成的多个列表元素展开成了一个整体的列表，输出可以输出ref_N张图片组合起来的长条
+    # T，即此处的 T_each_batch > 1 时，输出的应该是一个图像矩阵
+    collage = np.concatenate((T_frame_sketch, *[ref_N_frame_img[:, :, i] for i in range(ref_N_frame_img.shape[2])], fake_image, gt),
+                             axis=-2)
+    for batch_idx, c in enumerate(collage):   # require (B,T,H,W,3)
+        for t in range(len(c)):
+            cv2.imwrite('{}/{}_{}.png'.format(folder, batch_idx, t), c[t])
 
 @torch.no_grad()
 def csim(gt,fake_image, weight = './src/arcface_torch/checkpoints/ms1mv3_arcface_r100_fp16.pth', name='r100'): # glint360k_r100.pth
@@ -521,14 +543,9 @@ def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96)
             gt_lmk=gt_lmk.multi_face_landmarks[0]
             fake_lmk=fake_lmk.multi_face_landmarks[0]
             lip_values.append(get_norm_lip_dis(gt_lmk, fake_lmk))
-            # print("gt_lmk",gt_lmk)
-            # print("0x", gt_lmk.landmark[lip_index[0]].x, "0y",  gt_lmk.landmark[lip_index[0]].y)
-            # print("0x", gt_lmk.landmark[lip_index[0]].x*128, "0y",  gt_lmk.landmark[lip_index[0]].y*128)
-            # print("1x", gt_lmk.landmark[lip_index[1]].x, "1y",  gt_lmk.landmark[lip_index[1]].y)
             # 0x 0.5473756194114685 0y 0.5914055705070496
-            # 0x 70.06407928466797 0y 75.69991302490234
+            # 0x 70.06407928466797  0y 75.69991302490234
             # 1x 0.5277022123336792 1y 0.7280545234680176
-        
     
     ##############csim#############
     # (gt, fake_image):  # (B*T,3,H,W)   (B*T,3,H,W) cuda
@@ -553,37 +570,6 @@ def compute_generation_quality(gt, fake_image):  # (B*T,3,96,96)   (B*T,3,96,96)
     return np.asarray(psnr_values).mean(), np.asarray(ssim_values).mean(), fid ,\
         np.asarray(lip_values).mean(), np.asarray(csims).mean(), np.asarray(lpips_values).mean()
 
-def swap_masked_region(target_img, src_img, mask): #function used in post-process
-    """From src_img crop masked region to replace corresponding masked region
-       in target_img
-    """  # swap_masked_region(src_frame, generated_frame, mask=mask_img)
-    mask_img = cv2.GaussianBlur(mask, (21, 21), 11)
-    mask1 = mask_img / 255
-    mask1 = np.tile(np.expand_dims(mask1, axis=2), (1, 1, 3)) # Icey 比如mask扩展一个轴得到（1，1，1），然后堆叠（1，1，3）
-    img = src_img * mask1 + target_img * (1 - mask1)
-    return img.astype(np.uint8)
-
-def merge_face_contour_only(src_frame, generated_frame, face_region_coord, fa): #function used in post-process
-    """Merge the face from generated_frame into src_frame
-    """
-    input_img = src_frame
-    y1, y2, x1, x2 = 0, 0, 0, 0
-    if face_region_coord is not None:
-        y1, y2, x1, x2 = face_region_coord
-        input_img = src_frame[y1:y2, x1:x2]
-    ### 1) Detect the facial landmarks
-    preds = fa.get_landmarks(input_img)[0]  # 68x2
-    if face_region_coord is not None:
-        preds += np.array([x1, y1])
-    lm_pts = preds.astype(int)
-    contour_idx = list(range(0, 17)) + list(range(17, 27))[::-1]
-    contour_pts = lm_pts[contour_idx]
-    ### 2) Make the landmark region mark image
-    mask_img = np.zeros((src_frame.shape[0], src_frame.shape[1], 1), np.uint8)
-    cv2.fillConvexPoly(mask_img, contour_pts, 255)
-    ### 3) Do swap
-    img = swap_masked_region(src_frame, generated_frame, mask=mask_img)
-    return img
 
 def normalize_and_transpose(window):
     x = np.asarray(window) / 255.
@@ -602,8 +588,7 @@ def evaluate(ren_model, lmk_model, val_data_loader):
         prog_bar = tqdm(enumerate(val_data_loader), total=len(val_data_loader))
         #           (B,T,1,hv,wv) (B,T,2,74)  (B,T,2,57) (B,Nl,2,74)  (B,Nl,2,57) (B,T,3,H,W)
         for step, (T_mels_lmk,    T_pose,   T_content,Nl_pose,Nl_content, T_frame_img, \
-            T_frame_img_middle, T_frame_sketch_from_pre, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren,\
-            T_ori_face_frame) in prog_bar: # T_ori_face_frame (B,H,W,3) 
+            T_frame_img_middle, T_frame_sketch_from_pre, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren) in prog_bar:
             #    (B,T,3,H,W)   (B,T,3,H,W)       (B,ref_N,3,H,W)   (B,ref_N,,3,H,W)  (B,T,1,hv,wv)
             #Icey (B,1,3,H,W) 只有5帧里面中间那帧  
             print("getting batches")
@@ -632,112 +617,46 @@ def evaluate(ren_model, lmk_model, val_data_loader):
                 drawn_sketech = cv2.resize(drawn_sketech, (img_size, img_size))  # (128, 128, 3)
                 T_predit_sketches.append(drawn_sketech)
                 #
-            # T_predit_sketches (B*T, 128, 128, 3)
+
             T_predit_sketches = torch.FloatTensor(normalize_and_transpose(T_predit_sketches).reshape(-1,T,3,128,128))
-            # (B,T, 3, 128, 128) 
-            # print("finish geting predict sketchs")
+            # T_predit_sketches torch.Size([80, 5, 3, 128, 128])
+            # T_predit_sketches (B*T, 128, 128, 3) → (B,T, 3, 128, 128)
 
 
         ## 02 eval for ren_model ##
-            ren_model.eval() # T_frame_sketch_from_pre 换成 T_predit_sketches!!!!!!!!!!!!!!!!!!！
+            ren_model.eval() # T_frame_sketch_from_pre换成 T_predit_sketches!!!!!!!!!!!!!!!!!!！
             T_frame_img_middle, T_predit_sketches, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren = \
                 T_frame_img_middle.cuda(non_blocking=True), T_predit_sketches.cuda(non_blocking=True),\
                 ref_N_frame_img.cuda(non_blocking=True), ref_N_frame_sketch.cuda(non_blocking=True),T_mels_ren.cuda(non_blocking=True)
 
             generated_img, _, _, perceptual_gen_loss = ren_model(T_frame_img_middle, T_predit_sketches, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren)  # (B*T,3,H,W)
-            # print("finish geting predict images")
             # perceptual_warp_loss = perceptual_warp_loss.sum()
             perceptual_gen_loss = perceptual_gen_loss.sum() # “感知损失”(perceptual loss)
-            # (B*T,3,H,W)
+
             gt = torch.cat([T_frame_img_middle[i] for i in range(T_frame_img_middle.size(0))], dim=0)  # (B*T,3,H,W)
 
             # eval_warp_loss += perceptual_warp_loss.item()
             eval_gen_loss += perceptual_gen_loss.item()
-            count += 1 
-            print("lpips-vgg19↓", perceptual_gen_loss.item()/(count * gt.size(0)))
-
-            #########paste each generated face & post-precess#########
-
-            T_ori_face_crop_coordinates = []  #bounding boxes of human face
-            # 4. paste each generated face
-            
-            with mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landmarks=True,
-                                    min_detection_confidence=0.5) as face_mesh: # Icey 人脸的静态 3D 模型，468个点（id, x, y, z），但只用了131个，57+74
-                # T_ori_face_frame (B*1,H,W,3) 
-                for idx in range(T_ori_face_frame.size(0)):
-                    results = face_mesh.process(cv2.cvtColor(T_ori_face_frame[idx].numpy(), cv2.COLOR_BGR2RGB)) # Icey 进行特征点提取
-                    if not results.multi_face_landmarks:
-                        raise NotImplementedError  # not detect face
-                    face_landmarks = results.multi_face_landmarks[0] # Icey 检测到的第一张脸的landmark
-                    
-                    # (1)get the marginal landmarks to crop face
-                    x_min,x_max,y_min,y_max = 999,-999,999,-999
-                    for idx, landmark in enumerate(face_landmarks.landmark): # 对一张图里的所有landmark，找到最大最小
-                        if idx in all_landmarks_idx:
-                            if landmark.x < x_min:
-                                x_min = landmark.x
-                            if landmark.x > x_max:
-                                x_max = landmark.x
-                            if landmark.y < y_min:
-                                y_min = landmark.y
-                            if landmark.y > y_max:
-                                y_max = landmark.y
-                    ##########plus some pixel to the marginal region##########
-                    #note:the landmarks coordinates returned by mediapipe range 0~1
-                    plus_pixel = 25
-                    x_min = max(x_min - plus_pixel / w, 0) #landmarks coordinates是经过归一化的
-                    x_max = min(x_max + plus_pixel / w, 1)
-
-                    y_min = max(y_min - plus_pixel / h, 0)
-                    y_max = min(y_max + plus_pixel / h, 1)
-                    y1, y2, x1, x2 = int(y_min * h), int(y_max * h), int(x_min * w), int(x_max * w)
-                    T_ori_face_crop_coordinates.append([y1, y2, x1, x2]) # 每张图片未经过归一化的可crop坐标
-                T_ori_face_crop_coordinates = np.array(T_ori_face_crop_coordinates)
-
-
-            paste_fulls = []
-            # generated_img (B*T, 3, 128, 128)
-            T_ori_face_frame = T_ori_face_frame.cpu().numpy().astype(np.uint8)
-            gen_face = (generated_img.permute(0, 2, 3, 1).cpu().numpy() * 255).astype(np.uint8)  # (H,W,3)
-            # gen_face (B*T, 128, 128, 3)
-            for idx_paste in range(len(T_ori_face_crop_coordinates)): # 对B*T里的每一副图像处理
-                y1 = T_ori_face_crop_coordinates[idx_paste][0]
-                y2 = T_ori_face_crop_coordinates[idx_paste][1]
-                x1 = T_ori_face_crop_coordinates[idx_paste][2]
-                x2 = T_ori_face_crop_coordinates[idx_paste][3]
-                # T_ori_face_frame[idx_paste] (160, 160, 3)
-                original_background = T_ori_face_frame[idx_paste].copy() # 原图，无变形 (B*1, H, W, 3)
-                T_ori_face_frame[idx_paste][y1:y2, x1:x2] = cv2.resize(gen_face[idx_paste],(x2 - x1, y2 - y1))  #resize and paste generated face
-                # 5. post-process
-                full = merge_face_contour_only(original_background, T_ori_face_frame[idx_paste], (y1, y2, x1, x2), fa)   #(H,W,3)
-                full = full.transpose(2, 0, 1)
-                # print("full",full.shape)
-                paste_fulls.append(full)
+            count += 1
+            print("lpips-vgg19", perceptual_gen_loss.item()/(count * gt.size(0)))
             #########compute evaluation index ###########
-            # (gt, generated_img) (B*T,3,H,W)   (B*T,3,H,W) cuda, T = 1 
-            # T_ori_face_frame (B*1,H,W,3) 
-            
-            original_background = T_ori_face_frame.copy().transpose(0, 3, 1, 2)
-            original_background = torch.from_numpy(original_background).float()/255
-            paste_fulls = torch.Tensor(np.array(paste_fulls))/255
-            psnr, ssim, fid, liplmd, csim, lpips= compute_generation_quality(original_background, paste_fulls) # (gt, generated_img) (B*T,3,H,W)
+            psnr, ssim, fid, liplmd, csim, lpips= compute_generation_quality(gt, generated_img)
             psnrs.append(psnr)
             ssims.append(ssim)
             fids.append(fid)
             liplmds.append(liplmd)
             csims.append(csim)
             lpipss.append(lpips)
+        # T_predit_sketches torch.Size([80, 1, 3, 128, 128])
+        save_sample_images_gen(T_predit_sketches, ref_N_frame_img, generated_img, gt, temp_dir) # Icey set global_step = 404
+        #                         (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
 
-
-
-        # save_sample_images_gen(T_frame_sketch_from_pre, ref_N_frame_img, wrapped_ref,generated_img, gt, 404, checkpoint_dir) # Icey set global_step = 404
-        # #                         (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)(B*T,3,H,W)
     psnr, ssim, fid, liplmd, csim, lpips = np.asarray(psnrs).mean(), np.asarray(ssims).mean(), np.asarray(fids).mean(), \
                             np.asarray(liplmds).mean(), np.asarray(csims).mean(), np.asarray(lpipss).mean()
     # print(psnr, ssim, fid, liplmd, csim)
     print("finial result:")
     print('psnr↑ %.3f ssim↑ %.5f lpips-vgg16↓ %.5f fid↓ %.3f liplmd↓ %.6f csim↑ %.5f' % (psnr, ssim, lpips, fid, liplmd, csim))
-    print("eval_gen_loss-vgg19↓", eval_gen_loss / (count * gt.size(0)))
+    print("eval_gen_loss-vgg19↓", eval_gen_loss / count)
     writer.add_scalar('psnr', psnr)
     writer.add_scalar('ssim', ssim)
     writer.add_scalar('lpips-vgg16', lpips)
@@ -745,11 +664,8 @@ def evaluate(ren_model, lmk_model, val_data_loader):
     writer.add_scalar('liplmd', liplmd)
     writer.add_scalar('csim', csim)
     # writer.add_scalar('eval_warp_loss', eval_warp_loss / count, global_step)
-    writer.add_scalar('eval_gen_loss-vgg19', eval_gen_loss / (count * gt.size(0)))
+    writer.add_scalar('eval_gen_loss-vgg19↓', eval_gen_loss / (count * gt.size(0)))
     # print('eval_warp_loss :', eval_warp_loss / count,'eval_gen_loss', eval_gen_loss / count,'global_step:', global_step)
-    
-
-    
 
 if __name__ == '__main__':
     # # if not os.path.exists(checkpoint_dir):
@@ -787,7 +703,7 @@ if __name__ == '__main__':
     # disc_optimizer = torch.optim.Adam([p for p in disc.parameters() if p.requires_grad],lr=1e-4, betas=(0.5, 0.999))
     # create dataset
     # train_dataset = Dataset('train')
-    val_dataset = Dataset('test_del_not_detect') # test
+    val_dataset = Dataset('test-100') # test
     val_data_loader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=batch_size_val,
