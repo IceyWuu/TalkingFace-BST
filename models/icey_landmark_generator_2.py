@@ -83,8 +83,8 @@ class Fusion_transformer_encoder(nn.Module):
         self.position_a = PositionalEmbedding(d_model=512)  #for audio embedding
         self.modality = nn.Embedding(4, 512, padding_idx=0)  # 1 for pose,  2  for  audio, 3 for reference landmarks # 长度为4的张量，每个大小是512。torch.nn包下的Embedding，作为训练的一层，随模型训练得到适合的词向量
         self.dropout = nn.Dropout(p=dropout) # Dropout来避免过拟合，dropout=0.1即10%的数据会填补为0
-        encoder_layers = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
+        # encoder_layers = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True)
+        # self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
         # add decoder
         decoder_layers = TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True) 
         self.transformer_decoder = TransformerDecoder(decoder_layers, nlayers)
@@ -110,8 +110,8 @@ class Fusion_transformer_encoder(nn.Module):
         ref_tokens = self.dropout(ref_tokens)
 
         #(4) input to transformer # 编、解码器都是nlayers=4层
-        output = self.transformer_encoder(input_tokens)
-        output = self.transformer_decoder(output, ref_tokens) # 编码器输出作为q，ref_tokens作为kv
+        # output = self.transformer_encoder(input_tokens)
+        output = self.transformer_decoder(input_tokens, ref_tokens) # 编码器输出作为q，ref_tokens作为kv
         return output
 
 

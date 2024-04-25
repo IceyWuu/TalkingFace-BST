@@ -15,6 +15,7 @@
 /.vscode
 /preprocess_result.tar.gz
 /tensorboard_runs.tar.gz
+/temp
 
 
 

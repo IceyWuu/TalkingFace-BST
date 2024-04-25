@@ -6,12 +6,12 @@ from glob import glob
 from os.path import join, isfile
 import  random
 from tensorboardX import SummaryWriter
-from models.icey_landmark_generator import Landmark_generator as Landmark_transformer # Icey change Landmark_generator
+from models.icey_landmark_generator_2 import Landmark_generator as Landmark_transformer # Icey change Landmark_generator
 import argparse
 parser=argparse.ArgumentParser()
-parser.add_argument('--pre_audio_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio', # Icey default='...../Dataset/lrs2_preprocessed_audio'
+parser.add_argument('--pre_audio_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_audio', # Icey default='...../Dataset/lrs2_preprocessed_audio'
                     help='root path for preprocessed  audio')
-parser.add_argument('--landmarks_root',default='/home/zhenglab/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
+parser.add_argument('--landmarks_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_landmarks', # Icey default='...../Dataset/lrs2_landmarks'
                     help='root path for preprocessed  landmarks')
 args=parser.parse_args()
 #network parameters
@@ -22,7 +22,7 @@ nhead=4
 dropout=0.1 # 0.5
 Nl=15
 T = 5
-Project_name = 'test_landmarkT5_d512_fe1024_lay4_head4'
+Project_name = 'onlydecoder_landmarkT5_d512_fe1024_lay4_head4'
 print('Project_name:', Project_name)
 finetune_path =None
 num_workers = 8

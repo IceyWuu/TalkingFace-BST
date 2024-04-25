@@ -18,29 +18,26 @@ from piq.feature_extractors import InceptionV3
 # from models.video_renderer import Renderer 
 from models.video_renderer_3dconv_1 import Renderer 
 # from models.video_renderer_3dconv_3_2d import Renderer 
-# from models.video_renderer_3dconv_2 import Renderer 
 
 # from models.landmark_generator import Landmark_generator as Landmark_transformer 
-from models.icey_landmark_generator import Landmark_generator as Landmark_transformer 
+from models.icey_landmark_generator import Landmark_generator as Landmark_transformer
+from models.landmark_generator import Landmark_generator as Landmark_transformer_encoder
 
 import mediapipe as mp
 import subprocess
 from draw_landmark import draw_landmarks
 from src.arcface_torch.backbones import get_model
 import argparse
-import csv
+# import csv
 parser=argparse.ArgumentParser()
-# parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
-#                     default='/data/wuyubing/TalkingFace-BST/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
+parser.add_argument('--landmark_gen_checkpoint_path_encoder', type=str, \
+                    default='/data/wuyubing/TalkingFace-BST/checkpoints/encoder_forever_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
 parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
                     default='/data/wuyubing/TalkingFace-BST/checkpoints/decoder_landmarkT5_d512_fe1024_lay4_head4_epoch_1837_checkpoint_step000610000.pth')
-
-# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer_checkpoint.pth')
 
 # parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_93_checkpoint_step000049500.pth')
 parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_92_checkpoint_step000049500.pth')
 # parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B64_3_2d/conv3_render_B64_3_2d_epoch_92_checkpoint_step000061500.pth')
-# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B64_2v15_7_3_3/conv3_render_B64_2v15_7_3_3_epoch_92_checkpoint_step000061500.pth')
 
 parser.add_argument('--sketch_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
                     help='root path for sketches') # Icey',required=True'
@@ -56,11 +53,11 @@ parser.add_argument('--ori_face_frame_root',default='/data/wuyubing/TalkingFace-
 # parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
 # parser.add_argument('--static', type=bool, help='whether only use  the first frame for inference', default=False)
 # parser.add_argument("--data_root", type=str,help="Root folder of the LRS2 dataset", default='/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main')
-parser.add_argument('--output_dir', type=str, default='./conv3_1_epo92_decoder') # conv3_3_2d_epo92_encoder # ori_epo93_49500_encoder # conv3_1_epo92_encoder
+parser.add_argument('--output_dir', type=str, default='./test_for_landmark') # conv3_3_2d_epo92_encoder # ori_epo93_49500_encoder
 args=parser.parse_args()
 
-each_csv_file = './temp/metric_10_conv3_1_decoder.csv' # metric_10_conv3_3_2d_decoder # metric_10_ori_decoder # metric_10_conv3_1_encoder
-eval_epochs = 10
+# each_csv_file = './temp/metric_10_conv3_1_encoder.csv' # metric_10_conv3_3_2d_decoder # metric_10_ori_decoder
+eval_epochs = 1
 
 temp_dir = 'tempfile_of_{}'.format(args.output_dir.split('/')[-1])
 # os.makedirs(output_dir, exist_ok=True)
@@ -69,6 +66,7 @@ os.makedirs(temp_dir, exist_ok=True)
 landmark_root=args.landmarks_root
 # add checkpoints
 landmark_gen_checkpoint_path = args.landmark_gen_checkpoint_path
+landmark_gen_checkpoint_path_encoder = args.landmark_gen_checkpoint_path_encoder
 renderer_checkpoint_path =args.renderer_checkpoint_path
 # add mesh
 mp_face_mesh = mp.solutions.face_mesh
@@ -83,7 +81,7 @@ ref_N = 25 # 3 # Icey 参考图片，渲染部分
 T = 5 # 1 # Icey 推理时每个batch取的帧数
 print('Project_name:', Project_name)
 # batch_size = 80 # Icey 96       #### batch_size
-batch_size_val = 90 # 80 # Icey 96    #### batch_size
+batch_size_val = 42 # 80 # Icey 96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -407,17 +405,17 @@ def load_model(model, path):
     return model.eval()
 
 # T_predit_sketches torch.Size([80, 1, 3, 128, 128])
-def save_sample_images_gen(T_frame_sketch, ref_N_frame_img, generated_img, gt, checkpoint_dir):
+def save_sample_images_gen(T_frame_sketch,T_frame_sketch_encoder,T_frame_sketch_from_pre,ref_N_frame_img, generated_img, gt, checkpoint_dir):
     #                        (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
     
     T_each_batch = 1 # 此处会把 generated_img, gt的 B*T 分离，但render阶段T张只会生成 1 帧，故此处 T 要写为1
 
     # 生成的 1 张图像所用的参考图像
-    ref_N_frame_img = ref_N_frame_img.unsqueeze(1).expand(-1, T_each_batch, -1, -1, -1, -1)  # (B,T,ref_N,3,H,W)
-    ref_N_frame_img = (ref_N_frame_img.cpu().numpy().transpose(0, 1, 2, 4, 5, 3) * 255.).astype(np.uint8)  # ref: (B,T,ref_N,H,W,3)
+    # ref_N_frame_img = ref_N_frame_img.unsqueeze(1).expand(-1, T_each_batch, -1, -1, -1, -1)  # (B,T,ref_N,3,H,W)
+    # ref_N_frame_img = (ref_N_frame_img.cpu().numpy().transpose(0, 1, 2, 4, 5, 3) * 255.).astype(np.uint8)  # ref: (B,T,ref_N,H,W,3)
 
-    fake_image = torch.stack(torch.split(generated_img, T_each_batch, dim=0), dim=0)  #(B,T,3,H,W)
-    fake_image = (fake_image.detach().cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+    # fake_image = torch.stack(torch.split(generated_img, T_each_batch, dim=0), dim=0)  #(B,T,3,H,W)
+    # fake_image = (fake_image.detach().cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
 
     gt = torch.stack(torch.split(gt, T_each_batch, dim=0), dim=0)  # (B,T,3,H,W)
     gt = (gt.cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
@@ -425,6 +423,8 @@ def save_sample_images_gen(T_frame_sketch, ref_N_frame_img, generated_img, gt, c
     # T_frame_sketch torch.Size([80, 5, 3, 128, 128])
     # [:, 2] 索引操作将选择第二个维度上索引为 2 的元素
     T_frame_sketch=(T_frame_sketch[:,2].unsqueeze(1).cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+    T_frame_sketch_encoder=(T_frame_sketch_encoder[:,2].unsqueeze(1).cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+    T_frame_sketch_from_pre=(T_frame_sketch_from_pre[:,2].unsqueeze(1).cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
     # T_frame_sketch (80, 1, 128, 128, 3)
 
     folder = join(checkpoint_dir, "samples")
@@ -434,7 +434,7 @@ def save_sample_images_gen(T_frame_sketch, ref_N_frame_img, generated_img, gt, c
     # T_frame_sketch (80, 1, 128, 128, 3)
     # * 将列表推导式生成的多个列表元素展开成了一个整体的列表，输出可以输出ref_N张图片组合起来的长条
     # T，即此处的 T_each_batch > 1 时，输出的应该是一个图像矩阵
-    collage = np.concatenate((T_frame_sketch, *[ref_N_frame_img[:, :, i] for i in range(ref_N_frame_img.shape[2])], fake_image, gt),
+    collage = np.concatenate((T_frame_sketch_encoder, T_frame_sketch, T_frame_sketch_from_pre,gt),
                              axis=-2)
     for batch_idx, c in enumerate(collage):   # require (B,T,H,W,3)
         for t in range(len(c)):
@@ -588,11 +588,11 @@ def compute_generation_quality(gt, fake_image):
     print("fid", fid)
     print("lipLMD", np.asarray(lip_values).mean())
     print("csim", np.asarray(csims).mean())
-    with open(each_csv_file, 'a', encoding='UTF8', newline='') as f:
-        data = [Project_name, np.asarray(psnr_values).mean(), np.asarray(ssim_values).mean(), fid ,\
-        np.asarray(lip_values).mean(), np.asarray(csims).mean(), np.asarray(lpips_values).mean()]
-        writer_csv = csv.writer(f)
-        writer_csv.writerow(data)
+    # with open(each_csv_file, 'a', encoding='UTF8', newline='') as f:
+    #     data = [Project_name, np.asarray(psnr_values).mean(), np.asarray(ssim_values).mean(), fid ,\
+    #     np.asarray(lip_values).mean(), np.asarray(csims).mean(), np.asarray(lpips_values).mean()]
+    #     writer_csv = csv.writer(f)
+    #     writer_csv.writerow(data)
     return np.asarray(psnr_values).mean(), np.asarray(ssim_values).mean(), fid ,\
         np.asarray(lip_values).mean(), np.asarray(csims).mean(), np.asarray(lpips_values).mean()
 
@@ -602,7 +602,7 @@ def normalize_and_transpose(window):
     x = np.transpose(x, (0, 3, 1, 2))
     return torch.FloatTensor(x)  # B*T,3,H,W
 
-def evaluate(ren_model, lmk_model, val_data_loader):
+def evaluate(ren_model, lmk_model,lmk_model_encoder, val_data_loader):
     # global global_epoch, global_step
     # eval_epochs = 10
     global eval_epochs
@@ -621,31 +621,44 @@ def evaluate(ren_model, lmk_model, val_data_loader):
             print("getting batches")
         ## 01 eval for lmk_model ##
             lmk_model.eval()
+            lmk_model_encoder.eval()
             with torch.no_grad():  # require    (B,T,1,hv,wv)(B,T,2,74)(B,T,2,57)
                 predict_content = lmk_model(T_mels_lmk, T_pose, Nl_pose,Nl_content)  # (B*T,2,57)
+            with torch.no_grad():
+                predict_content_encoder = lmk_model_encoder(T_mels_lmk, T_pose, Nl_pose,Nl_content) 
             # preprocess的T_pose和T_content
             T_pose = torch.cat([T_pose[i] for i in range(T_pose.size(0))], dim=0)  # (B*T,2,74)
             T_content = torch.cat([T_content[i] for i in range(T_content.size(0))], dim=0)  # (B*T,2,57)
             # 预测和参考合成整脸landmark
             T_pose = T_pose.cuda(non_blocking=True)
             T_predict_full_landmarks = torch.cat([T_pose, predict_content], dim=2).cpu().numpy()  # (B*T,2,131) 
+            T_predict_full_landmarks_encoder = torch.cat([T_pose, predict_content_encoder], dim=2).cpu().numpy()
             
             # ref_img_full_face_landmarks = torch.cat([ref_img_pose, ref_img_content], dim=2).cpu().numpy()  # (N,2,131)
             T_predit_sketches = []
+            T_predit_sketches_encoder = []
             T_frame_img = torch.cat([T_frame_img[i] for i in range(T_frame_img.size(0))], dim=0) # (B*T,3,H,W)
             for frame_idx in range(T_predict_full_landmarks.shape[0]):  # B*T 每次处理1张
                 full_landmarks = T_predict_full_landmarks[frame_idx]  # (2,131)
+                full_landmarks_encoder = T_predict_full_landmarks_encoder[frame_idx]
                 h, w = T_frame_img[frame_idx].shape[1], T_frame_img[frame_idx].shape[2] # ref_img (N,H,W,3)
-                drawn_sketech = np.zeros((int(h * img_size / min(h, w)), int(w * img_size / min(h, w)), 3))
+                drawn_sketech_ = np.zeros((int(h * img_size / min(h, w)), int(w * img_size / min(h, w)), 3))
                 mediapipe_format_landmarks = [LandmarkDict(ori_sequence_idx[full_face_landmark_sequence[idx]], full_landmarks[0, idx],
                                                         full_landmarks[1, idx]) for idx in range(full_landmarks.shape[1])]
-                drawn_sketech = draw_landmarks(drawn_sketech, mediapipe_format_landmarks, connections=FACEMESH_CONNECTION,
+                mediapipe_format_landmarks_encoder = [LandmarkDict(ori_sequence_idx[full_face_landmark_sequence[idx]], full_landmarks_encoder[0, idx],
+                                                        full_landmarks_encoder[1, idx]) for idx in range(full_landmarks_encoder.shape[1])]
+                drawn_sketech = draw_landmarks(drawn_sketech_, mediapipe_format_landmarks, connections=FACEMESH_CONNECTION,
+                                            connection_drawing_spec=drawing_spec)
+                drawn_sketech_encoder = draw_landmarks(drawn_sketech_, mediapipe_format_landmarks_encoder, connections=FACEMESH_CONNECTION,
                                             connection_drawing_spec=drawing_spec)
                 drawn_sketech = cv2.resize(drawn_sketech, (img_size, img_size))  # (128, 128, 3)
                 T_predit_sketches.append(drawn_sketech)
+                drawn_sketech_encoder = cv2.resize(drawn_sketech_encoder, (img_size, img_size))  # (128, 128, 3)
+                T_predit_sketches_encoder.append(drawn_sketech_encoder)
                 #
 
             T_predit_sketches = torch.FloatTensor(normalize_and_transpose(T_predit_sketches).reshape(-1,T,3,128,128))
+            T_predit_sketches_encoder = torch.FloatTensor(normalize_and_transpose(T_predit_sketches_encoder).reshape(-1,T,3,128,128))
             # T_predit_sketches torch.Size([80, 5, 3, 128, 128])
             # T_predit_sketches (B*T, 128, 128, 3) → (B,T, 3, 128, 128)
 
@@ -675,7 +688,7 @@ def evaluate(ren_model, lmk_model, val_data_loader):
             csims.append(csim)
             lpipss.append(lpips)
         # T_predit_sketches torch.Size([80, 1, 3, 128, 128])
-        save_sample_images_gen(T_predit_sketches, ref_N_frame_img, generated_img, gt, temp_dir) # Icey set global_step = 404
+        save_sample_images_gen(T_predit_sketches,T_predit_sketches_encoder, T_frame_sketch_from_pre,ref_N_frame_img, generated_img, gt, temp_dir) # Icey set global_step = 404
         #                         (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
 
     psnr, ssim, fid, liplmd, csim, lpips = np.asarray(psnrs).mean(), np.asarray(ssims).mean(), np.asarray(fids).mean(), \
@@ -693,10 +706,10 @@ def evaluate(ren_model, lmk_model, val_data_loader):
     # writer.add_scalar('eval_warp_loss', eval_warp_loss / count, global_step)
     writer.add_scalar('eval_gen_loss-vgg19', eval_gen_loss / (count * gt.size(0)))
     # print('eval_warp_loss :', eval_warp_loss / count,'eval_gen_loss', eval_gen_loss / count,'global_step:', global_step)
-    with open('./temp/metric_10.csv', 'a', encoding='UTF8', newline='') as f:
-        data = [Project_name, psnr, ssim, lpips,fid,liplmd,csim,eval_gen_loss / (count * gt.size(0)),'even']
-        writer_csv = csv.writer(f)
-        writer_csv.writerow(data)
+    # with open('./temp/metric_10.csv', 'a', encoding='UTF8', newline='') as f:
+    #     data = [Project_name, psnr, ssim, lpips,fid,liplmd,csim,eval_gen_loss / (count * gt.size(0)),'even']
+    #     writer_csv = csv.writer(f)
+    #     writer_csv.writerow(data)
 
 if __name__ == '__main__':
     # # if not os.path.exists(checkpoint_dir):
@@ -719,6 +732,9 @@ if __name__ == '__main__':
     
     landmark_generator_model = load_model(model=Landmark_transformer(T=T, d_model=512, nlayers=4, nhead=4, dim_feedforward=1024, dropout=0.1), 
                                           path=landmark_gen_checkpoint_path)
+    landmark_generator_model_encoder = load_model(model=Landmark_transformer_encoder(T=T, d_model=512, nlayers=4, nhead=4, dim_feedforward=1024, dropout=0.1), 
+                                          path=landmark_gen_checkpoint_path_encoder)
+                                          
     renderer_model = load_model(model=Renderer(), path=renderer_checkpoint_path)
     print("loaded models")
     # if finetune_path is not None:  ###fine tune
@@ -726,6 +742,7 @@ if __name__ == '__main__':
 
     if torch.cuda.device_count() > 1:
         landmark_generator_model = nn.DataParallel(landmark_generator_model)
+        landmark_generator_model_encoder = nn.DataParallel(landmark_generator_model_encoder)
         renderer_model = nn.DataParallel(renderer_model)
     print("cuda.device_count():",torch.cuda.device_count())
     #     disc = nn.DataParallel(disc)
@@ -734,7 +751,7 @@ if __name__ == '__main__':
     # disc_optimizer = torch.optim.Adam([p for p in disc.parameters() if p.requires_grad],lr=1e-4, betas=(0.5, 0.999))
     # create dataset
     # train_dataset = Dataset('train')
-    val_dataset = Dataset('test') # test-100
+    val_dataset = Dataset('test-100') # test
     val_data_loader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=batch_size_val,
@@ -746,7 +763,7 @@ if __name__ == '__main__':
 
     with torch.no_grad():
         print("To evaluate")
-        evaluate(renderer_model,landmark_generator_model, val_data_loader)
+        evaluate(renderer_model,landmark_generator_model,landmark_generator_model_encoder, val_data_loader)
         
 
 print("end")
