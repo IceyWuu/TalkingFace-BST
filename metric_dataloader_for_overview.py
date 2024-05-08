@@ -59,11 +59,11 @@ parser.add_argument('--ori_face_frame_root',default='/data/wuyubing/TalkingFace-
 # parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
 # parser.add_argument('--static', type=bool, help='whether only use  the first frame for inference', default=False)
 # parser.add_argument("--data_root", type=str,help="Root folder of the LRS2 dataset", default='/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main')
-parser.add_argument('--output_dir', type=str, default='./conv3_1_epo92_decoder') # conv3_3_2d_epo92_encoder # ori_epo93_49500_encoder # conv3_1_epo92_encoder
+parser.add_argument('--output_dir', type=str, default='./overview') # conv3_3_2d_epo92_encoder # ori_epo93_49500_encoder # conv3_1_epo92_encoder
 args=parser.parse_args()
 
 # each_csv_file = './temp/metric_10_conv3_1_decoder.csv' # metric_10_conv3_3_2d_decoder # metric_10_ori_decoder # metric_10_conv3_1_encoder
-eval_epochs = 10
+eval_epochs = 1
 
 temp_dir = 'tempfile_of_{}'.format(args.output_dir.split('/')[-1])
 # os.makedirs(output_dir, exist_ok=True)
@@ -86,7 +86,7 @@ ref_N = 25 # 3 # Icey 参考图片，渲染部分
 T = 5 # 1 # Icey 推理时每个batch取的帧数
 print('Project_name:', Project_name)
 # batch_size = 80 # Icey 96       #### batch_size
-batch_size_val = 90 # 80 # Icey 96    #### batch_size
+batch_size_val = 30 # 80 # Icey 96    #### batch_size
 
 mel_step_size = 16  # 16
 fps = 25
@@ -410,8 +410,8 @@ def load_model(model, path):
     return model.eval()
 
 # T_predit_sketches torch.Size([80, 1, 3, 128, 128])
-def save_sample_images_gen(T_mels_lmk,T_frame_sketch,T_frame_sketch_from_pre, ref_N_frame_img,ref_N_frame_sketch, generated_img, gt, checkpoint_dir):
-    #                       (B,5,1,hv,wv) (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
+def save_sample_images_gen(wrapped_ref,T_mels_lmk,T_frame_sketch,T_frame_sketch_from_pre, ref_N_frame_img,ref_N_frame_sketch, generated_img, gt, checkpoint_dir):
+    #                       (B*T,3,H,W)(B,5,1,hv,wv) (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
     
     T_each_batch = 1 # 此处会把 generated_img, gt的 B*T 分离，但render阶段T张只会生成 1 帧，故此处 T 要写为1
 
@@ -428,24 +428,29 @@ def save_sample_images_gen(T_mels_lmk,T_frame_sketch,T_frame_sketch_from_pre, re
 
     gt = torch.stack(torch.split(gt, T_each_batch, dim=0), dim=0)  # (B,T,3,H,W)
     gt = (gt.cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
+
+    wrapped_ref = torch.stack(torch.split(wrapped_ref, T_each_batch, dim=0), dim=0)  # (B,T,3,H,W)
+    wrapped_ref = (wrapped_ref.cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,T,H,W,3)
     
     # T_frame_sketch torch.Size([80, 5, 3, 128, 128])
     # [:, 2] 索引操作将选择第二个维度上索引为 2 的元素
-    T_frame_sketch=(T_frame_sketch.cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8)  # (B,5,H,W,3)
-    T_frame_sketch_from_pre=(T_frame_sketch_from_pre.cpu().numpy().transpose(0, 1, 3, 4, 2) * 255.).astype(np.uint8) 
+    T_frame_sketch = T_frame_sketch.unsqueeze(1).expand(-1, T_each_batch, -1, -1, -1, -1) # (B,1,5,3,H,W)
+    T_frame_sketch=(T_frame_sketch.cpu().numpy().transpose(0, 1, 2, 4, 5, 3) * 255.).astype(np.uint8)  # (B,1,5,H,W,3)
+    T_frame_sketch_from_pre = T_frame_sketch_from_pre.unsqueeze(1).expand(-1, T_each_batch, -1, -1, -1, -1) # (B,1,5,H,W,3)
+    T_frame_sketch_from_pre=(T_frame_sketch_from_pre.cpu().numpy().transpose(0, 1, 2, 4, 5, 3) * 255.).astype(np.uint8) 
     # T_frame_sketch (80, 5, 128, 128, 3)
 
     folder = join(checkpoint_dir, "samples")
     if not os.path.exists(folder):
         os.mkdir(folder)
 
-    sub_folder_ref = join(checkpoint_dir, folder, "ref")
+    sub_folder_ref = join(folder, "ref")
     if not os.path.exists(sub_folder_ref):
         os.mkdir(sub_folder_ref)
-    sub_folder_lm = join(checkpoint_dir, folder, "landmark")
+    sub_folder_lm = join(folder, "landmark")
     if not os.path.exists(sub_folder_lm):
         os.mkdir(sub_folder_lm)
-    sub_folder_mel = join(checkpoint_dir, folder, "mel")
+    sub_folder_mel = join(folder, "mel")
     if not os.path.exists(sub_folder_mel):
         os.mkdir(sub_folder_mel)
 
@@ -454,18 +459,18 @@ def save_sample_images_gen(T_mels_lmk,T_frame_sketch,T_frame_sketch_from_pre, re
     # collage = np.concatenate((T_frame_sketch, *[ref_N_frame_img[:, :, i] for i in range(ref_N_frame_img.shape[2])], fake_image, gt),
     #                          axis=-2)
 
-    # 渲染部分参考人脸和sketch xn
-    collage = np.concatenate(( *[ref_N_frame_img[:, :, i] for i in range(ref_N_frame_img.shape[2])]),
-                             axis=-2)
-    collage_sk = = np.concatenate((*[ref_N_frame_sketch[:, :, i] for i in range(ref_N_frame_sketch.shape[2])]),
-                             axis=-2)
-    collage = np.vstack((collage, collage_sk)) # 要保证维度一致
+    #### 渲染部分参考人脸和sketch xn
+    collage = np.concatenate(( gt,gt,*[ref_N_frame_img[:, :, i] for i in range(ref_N_frame_img.shape[2])]),
+                            axis=-2)#(30, 1, 128, 3328, 3)
+    collage_sk = np.concatenate((wrapped_ref,fake_image,*[ref_N_frame_sketch[:, :, i] for i in range(ref_N_frame_sketch.shape[2])]),
+                            axis=-2)#(30, 1, 128, 3328, 3)
+    collage = np.concatenate((collage, collage_sk), axis=2) # (B, 1, 256, 3328, 3)
 
     for batch_idx, c in enumerate(collage):   # require (B,T,H,W,3)
         for t in range(len(c)):
             cv2.imwrite('{}/{}_{}.png'.format(sub_folder_ref, batch_idx, t), c[t])
     
-    # landmark部分的5个生成sketch和真值sketch
+    ##### landmark部分的5个生成sketch和真值sketch
     collage_lm = np.concatenate(( *[T_frame_sketch[:, :, i] for i in range(T_frame_sketch.shape[2])],
                             *[T_frame_sketch_from_pre[:, :, i] for i in range(T_frame_sketch_from_pre.shape[2])]),
                              axis=-2)
@@ -473,31 +478,64 @@ def save_sample_images_gen(T_mels_lmk,T_frame_sketch,T_frame_sketch_from_pre, re
         for t in range(len(c)):
             cv2.imwrite('{}/{}_{}.png'.format(sub_folder_lm, batch_idx, t), c[t])
     
-    # mel可视化
+    ##### mel可视化
     sr = 16000
     hop_length = 200
-    T_mels_lmk = T_mels_lmk.cpu().numpy() # (B,5,1,hv,wv)
+    T_mels_lmk = T_mels_lmk.cpu().numpy() # (B, 5, 1, 80, 16)
     # 使用 np.squeeze 去掉第3个维度（长度为1的维度）
-    T_mels_lmk = [np.squeeze(mel_spec, axis=2) for mel_spec in T_mels_lmk] # (B,5,hv,wv)
-    T_mels_lmk = np.concatenate(T_mels_lmk, axis=-1) #(B,hv,wv*5)
+    T_mels_lmk = np.squeeze(T_mels_lmk, axis=2) # (B, 5, 80, 16)
+ 
 
     # 保存图像为PNG格式
-    
-    for batch_idx,mel_spec in enumerate(T_mels_lmk):   #  (B,hv,wv)   
-        # 显示 Mel 频谱图
-        librosa.display.specshow(librosa.power_to_db(mel_spec, ref=np.max),
-                                x_axis='time', y_axis='mel', sr=sr, hop_length=hop_length)
-        # 添加颜色条
-        plt.colorbar(format="%+2.0f dB")
+    # 计算整个数据集的最小值和最大值
+    min_value = np.min(T_mels_lmk)
+    max_value = np.max(T_mels_lmk)
+    for batch_idx,mel_specs in enumerate(T_mels_lmk):   #  (hv,wv)  
+        for mel_idx, mel_spec in enumerate(mel_specs):
+            # 显示 Mel 频谱图
+            librosa.display.specshow(mel_spec,
+                                    x_axis='time', y_axis='mel', sr=sr, hop_length=hop_length,
+                                    vmin=min_value, vmax=max_value,cmap='magma')
+            # 添加颜色条
+            plt.colorbar(format="%+2.0f dB")
 
-        # 设置图像标题和轴标签
-        plt.title('Merged Mel Spectrogram')
-        plt.xlabel('Time')
-        plt.ylabel('Frequency (Mel)')
-        plt.tight_layout()
-        plt.savefig('{}/{}_0.png'.format(sub_folder_mel, batch_idx), dpi=300)
-        # 不显示图像窗口
-        plt.close()
+            # 设置图像标题和轴标签
+            plt.title('Merged Mel Spectrogram')
+            plt.xlabel('Time')
+            plt.ylabel('Frequency (Mel)')
+            plt.tight_layout()
+            plt.savefig('{}/{}_0_{}.png'.format(sub_folder_mel, batch_idx,mel_idx), dpi=300)
+            # 不显示图像窗口
+            plt.close()
+    # ##### mel可视化
+    # sr = 16000
+    # hop_length = 200
+    # T_mels_lmk = T_mels_lmk.cpu().numpy() # (B, 5, 1, 80, 16)
+    # # 使用 np.squeeze 去掉第3个维度（长度为1的维度）
+    # T_mels_lmk = np.squeeze(T_mels_lmk, axis=2) # (B, 5, 80, 16)
+    # T_mels_lmk = T_mels_lmk.transpose(0, 2, 3, 1).reshape(-1, 80, 16*5) # (B, 80, 80)
+ 
+
+    # # 保存图像为PNG格式
+    # # 计算整个数据集的最小值和最大值
+    # min_value = np.min(T_mels_lmk)
+    # max_value = np.max(T_mels_lmk)
+    # for batch_idx,mel_spec in enumerate(T_mels_lmk):   #  (hv,wv)   
+    #     # 显示 Mel 频谱图
+    #     librosa.display.specshow(mel_spec,
+    #                             x_axis='time', y_axis='mel', sr=sr, hop_length=hop_length,
+    #                             vmin=min_value, vmax=max_value,cmap='magma')
+    #     # 添加颜色条
+    #     plt.colorbar(format="%+2.0f dB")
+
+    #     # 设置图像标题和轴标签
+    #     plt.title('Merged Mel Spectrogram')
+    #     plt.xlabel('Time')
+    #     plt.ylabel('Frequency (Mel)')
+    #     plt.tight_layout()
+    #     plt.savefig('{}/{}_0.png'.format(sub_folder_mel, batch_idx), dpi=300)
+    #     # 不显示图像窗口
+    #     plt.close()
     
 
 
@@ -713,14 +751,14 @@ def evaluate(ren_model, lmk_model, val_data_loader):
                 T_frame_img_middle.cuda(non_blocking=True), T_predit_sketches.cuda(non_blocking=True),\
                 ref_N_frame_img.cuda(non_blocking=True), ref_N_frame_sketch.cuda(non_blocking=True),T_mels_ren.cuda(non_blocking=True)
 
-            generated_img, _, _, perceptual_gen_loss = ren_model(T_frame_img_middle, T_predit_sketches, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren)  # (B*T,3,H,W)
+            generated_img, wrapped_ref, _, perceptual_gen_loss = ren_model(T_frame_img_middle, T_predit_sketches, ref_N_frame_img, ref_N_frame_sketch,T_mels_ren)  # (B*T,3,H,W)
             # perceptual_warp_loss = perceptual_warp_loss.sum()
             perceptual_gen_loss = perceptual_gen_loss.sum() # “感知损失”(perceptual loss)
 
             gt = torch.cat([T_frame_img_middle[i] for i in range(T_frame_img_middle.size(0))], dim=0)  # (B*T,3,H,W)
 
         # T_predit_sketches torch.Size([80, 1, 3, 128, 128])
-        save_sample_images_gen(T_mels_lmk,T_predit_sketches,T_frame_sketch_from_pre, ref_N_frame_img,ref_N_frame_sketch, generated_img, gt, temp_dir) # Icey set global_step = 404
+        save_sample_images_gen(wrapped_ref,T_mels_lmk,T_predit_sketches,T_frame_sketch_from_pre, ref_N_frame_img,ref_N_frame_sketch, generated_img, gt, temp_dir) # Icey set global_step = 404
         #                         (B,T,3,H,W)  (B,ref_N,3,H,W)  (B*T,3,H,W) (B*T,3,H,W)
 
 
@@ -760,7 +798,7 @@ if __name__ == '__main__':
     # disc_optimizer = torch.optim.Adam([p for p in disc.parameters() if p.requires_grad],lr=1e-4, betas=(0.5, 0.999))
     # create dataset
     # train_dataset = Dataset('train')
-    val_dataset = Dataset('test') # test-100
+    val_dataset = Dataset('test-100') # test-100
     val_data_loader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=batch_size_val,

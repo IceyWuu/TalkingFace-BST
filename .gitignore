@@ -16,6 +16,7 @@
 /preprocess_result.tar.gz
 /tensorboard_runs.tar.gz
 /temp
+/test/test_video/
 
 
 

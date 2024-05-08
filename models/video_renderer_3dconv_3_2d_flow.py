@@ -6,6 +6,8 @@ import torchvision
 import os
 import numpy as np
 import cv2
+# from torchvision.utils import flow_to_image # 版本低了，没有这个功能
+import flow_vis
 
 flow_dir = 'flow_image'
 h1_dir = 'f_h1_dir'
@@ -204,7 +206,45 @@ def warping(source_image, deformation):
         deformation = deformation.permute(0, 2, 3, 1)
     return torch.nn.functional.grid_sample(source_image, deformation) # 对输入图像进行变形，利用形变张量中的信息进行像素插值，得到输出的变形后的图像
 
+# def visualize_features(features, output_dir):
+#     features = features.cpu().numpy()
+#     """
+#     Visualize feature maps and save as a single image.
+    
+#     Args:
+#     - features: numpy array of shape (B, C, H, W) or (C, H, W)
+#                 B: batch size, C: number of channels, H: height, W: width
+#     - output_dir: directory to save the visualized image
+#     """
+    
+#     os.makedirs(output_dir, exist_ok=True)
+    
+#     if len(features.shape) == 4:  # (B, C, H, W)
+#         for batch_idx in range(features.shape[0]):
+#         # 合并所有通道的平均值
+#             mean_feature_map = np.mean(features, axis=1)  # 沿着通道轴求平均
+#             # Normalize to [0, 1]
+#             mean_feature_map = (mean_feature_map - mean_feature_map.min()) / (mean_feature_map.max() - mean_feature_map.min())
+#             # Convert to uint8
+#             mean_feature_map = (mean_feature_map * 255).astype(np.uint8)
+            
+#         cv2.imwrite(f'{output_dir}/batch_{batch_idx}_0.png', mean_feature_map)
+                
+#     elif len(features.shape) == 3:  # (C, H, W)
+#         # 合并所有通道
+#         merged_feature_map = np.mean(features, axis=0)  # 沿着通道轴求平均
+#         # Normalize to [0, 1]
+#         merged_feature_map = (merged_feature_map - merged_feature_map.min()) / (merged_feature_map.max() - merged_feature_map.min())
+#         # Convert to uint8
+#         merged_feature_map = (merged_feature_map * 255).astype(np.uint8)
+        
+#         cv2.imwrite(f'{output_dir}/_0.png', mean_feature_map)
+                
+#     else:
+#         raise ValueError("Invalid shape of feature maps. Expected (B, C, H, W) or (C, H, W).")
+    
 def visualize_features(features, output_dir):
+    features = features.cpu().numpy()
     """
     Visualize feature maps and save as images.
     
@@ -218,7 +258,8 @@ def visualize_features(features, output_dir):
     
     if len(features.shape) == 4:  # (B, C, H, W)
         for batch_idx in range(features.shape[0]):
-            for channel_idx in range(features.shape[1]):
+            max_img = max(features.shape[1],20)
+            for channel_idx in range(max_img):
                 feature_map = features[batch_idx, channel_idx]
                 
                 # Normalize to [0, 1]
@@ -230,7 +271,8 @@ def visualize_features(features, output_dir):
                 cv2.imwrite(f'{output_dir}/batch_{batch_idx}_channel_{channel_idx}.png', feature_map)
                 
     elif len(features.shape) == 3:  # (C, H, W)
-        for channel_idx in range(features.shape[0]):
+        max_img = max(features.shape[0],20)
+        for channel_idx in range(max_img):
             feature_map = features[channel_idx]
             
             # Normalize to [0, 1]
@@ -244,31 +286,18 @@ def visualize_features(features, output_dir):
     else:
         raise ValueError("Invalid shape of feature maps. Expected (B, C, H, W) or (C, H, W).")
 
-def visualize_flow_color(flow): # (B,2,128,128)
-    assert flow.shape[1] == 2, "Flow tensor must have 2 channels (u and v)"
 
-    # flow_dir = 'flow_image'
+
+def visualize_flow_color(flow, idx):# (B,2,128,128)
     os.makedirs(flow_dir, exist_ok=True)
 
-    for batch_idx in range(flow.shape[0]):
-        u = flow[batch_idx, 0, :, :]
-        v = flow[batch_idx, 1, :, :]
-        
-        magnitude = np.sqrt(u**2 + v**2)
-        angle = np.arctan2(v, u)
-        
-        # 使用HSV色彩空间
-        hsv = np.zeros((flow.shape[2], flow.shape[3], 3), dtype=np.uint8)
-        
-        # Hue表示角度，Saturation和Value表示幅度
-        hsv[..., 0] = (angle + np.pi) * 180 / (2 * np.pi)
-        hsv[..., 1] = 255
-        hsv[..., 2] = np.minimum(magnitude * 255 / np.max(magnitude), 255)
-        
-        rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
-        
-        cv2.imwrite('{}/{}_0.png'.format(flow_dir, batch_idx), rgb)
+    flow = flow.cpu().numpy()
+    flow = np.transpose(flow, (0,2,3,1))
 
+    for batch_idx, c in enumerate(flow):
+        flow_im = flow_vis.flow_to_color(c, convert_to_bgr=False)
+        # flow_im = np.transpose(flow_im.numpy(), (1, 2, 0))
+        cv2.imwrite('{}/{}_0_{}.png'.format(flow_dir, batch_idx,idx), flow_im)
 
 
 class DenseFlowNetwork(torch.nn.Module): # num_channel=6, num_channel_modulation=3*5
@@ -346,7 +375,7 @@ class DenseFlowNetwork(torch.nn.Module): # num_channel=6, num_channel_modulation
             output_weight=self.conv_5(spade_layer)       #  (B*T,1,128,128)
 
             # 调用函数进行可视化
-            visualize_flow_color(output_flow)
+            visualize_flow_color(output_flow, ref_idx)
 
             deformation=convert_flow_to_deformation(output_flow)
             wrapped_h1 = warping(h1, deformation)  #(32,128,128)
@@ -363,8 +392,8 @@ class DenseFlowNetwork(torch.nn.Module): # num_channel=6, num_channel_modulation
         wrapped_h2_sum = wrapped_h2_sum / downsample(softmax_denominator, (64,64))
         wrapped_ref_sum = wrapped_ref_sum / softmax_denominator
 
-        visualize_features(wrapped_h1_sum, f_h1_dir)
-        visualize_features(wrapped_h2_sum, f_h2_dir)
+        visualize_features(wrapped_h1_sum, h1_dir)
+        visualize_features(wrapped_h2_sum, h2_dir)
 
         return wrapped_h1_sum, wrapped_h2_sum, wrapped_ref_sum
 

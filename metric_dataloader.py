@@ -19,6 +19,8 @@ from piq.feature_extractors import InceptionV3
 from models.video_renderer_3dconv_1 import Renderer 
 # from models.video_renderer_3dconv_3_2d import Renderer 
 # from models.video_renderer_3dconv_2 import Renderer 
+# from models.render_3dconv_1_onesk import Renderer 
+# from models.render_3dconv_3_2d_3daligment import Renderer 
 
 # from models.landmark_generator import Landmark_generator as Landmark_transformer 
 from models.icey_landmark_generator import Landmark_generator as Landmark_transformer 
@@ -37,10 +39,14 @@ parser.add_argument('--landmark_gen_checkpoint_path', type=str, \
 
 # parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer_checkpoint.pth')
 
+# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B64_may/ori_render_B64_may_epoch_92_checkpoint_step000061500.pth')
 # parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_ori_render_B80/ori_render_B80_epoch_93_checkpoint_step000049500.pth')
-parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_92_checkpoint_step000049500.pth')
+parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_1_render_B64_may/conv3_1_render_B64_may_epoch_91_checkpoint_step000061500.pth')
+# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B80_1/conv3_render_B80_1_epoch_92_checkpoint_step000049500.pth')
 # parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B64_3_2d/conv3_render_B64_3_2d_epoch_92_checkpoint_step000061500.pth')
 # parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B64_2v15_7_3_3/conv3_render_B64_2v15_7_3_3_epoch_92_checkpoint_step000061500.pth')
+# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B64_1_onesk/conv3_render_B64_1_onesk_epoch_92_checkpoint_step000061500.pth')
+# parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/checkpoints/renderer/Pro_conv3_render_B64_1_3daligment/conv3_render_B64_1_3daligment_epoch_92_checkpoint_step000061500.pth')
 
 parser.add_argument('--sketch_root',default='/data/wuyubing/TalkingFace-BST/preprocess_result/lrs2_sketch128',\
                     help='root path for sketches') # Icey',required=True'
@@ -56,10 +62,10 @@ parser.add_argument('--ori_face_frame_root',default='/data/wuyubing/TalkingFace-
 # parser.add_argument('--renderer_checkpoint_path', type=str, default='/data/wuyubing/TalkingFace-BST/test/checkpoints/renderer_checkpoint.pth')
 # parser.add_argument('--static', type=bool, help='whether only use  the first frame for inference', default=False)
 # parser.add_argument("--data_root", type=str,help="Root folder of the LRS2 dataset", default='/home/zhenglab/wuyubing/TalkingFace-BST/mvlrs_v1/main')
-parser.add_argument('--output_dir', type=str, default='./conv3_1_epo92_decoder') # conv3_3_2d_epo92_encoder # ori_epo93_49500_encoder # conv3_1_epo92_encoder
+parser.add_argument('--output_dir', type=str, default='./conv3_1_bs64_epoch92_decoder') # conv3_3_2d_epo92_encoder # ori_epo93_49500_encoder # conv3_1_epo92_encoder
 args=parser.parse_args()
 
-each_csv_file = './temp/metric_10_conv3_1_decoder.csv' # metric_10_conv3_3_2d_decoder # metric_10_ori_decoder # metric_10_conv3_1_encoder
+each_csv_file = './temp/metric_10_conv3_1_de_bs64.csv' # metric_10_conv3_3_2d_decoder # metric_10_ori_decoder # metric_10_conv3_1_encoder
 eval_epochs = 10
 
 temp_dir = 'tempfile_of_{}'.format(args.output_dir.split('/')[-1])
